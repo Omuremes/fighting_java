@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Player from '../classes/Player';
 
 const GameCanvas = () => {
@@ -9,21 +9,40 @@ const GameCanvas = () => {
   const player2Velocity = useRef({ x: 0, y: 0 });
   const player1Health = useRef(100);
   const player2Health = useRef(100);
+  const round = useRef(1);
+  const [showRoundText, setShowRoundText] = useState(true);
+  const [roundTextOpacity, setRoundTextOpacity] = useState(1); // Изменено с 0 на 1
+  const player1Wins = useRef(0);
+  const player2Wins = useRef(0);
   const speed = 8;
   const gravity = 0.10;
 
-  // --- Новое: состояние раундов и побед ---
-  const [round, setRound] = React.useState(1);
-  const [player1Wins, setPlayer1Wins] = React.useState(0);
-  const [player2Wins, setPlayer2Wins] = React.useState(0);
-  const [winner, setWinner] = React.useState(null);
-  const [isRoundOver, setIsRoundOver] = React.useState(false);
-  const [canRestart, setCanRestart] = React.useState(false); // для сброса после победы
-  const deathPlayed = useRef(false); // чтобы анимация смерти проигрывалась только один раз
+  // Эффект для начальной анимации текста раунда при старте
+  useEffect(() => {
+    // Показываем текст раунда при первой загрузке
+    setShowRoundText(true);
+    setRoundTextOpacity(1);
+    
+    // Скрываем текст через 2 секунды
+    const timer = setTimeout(() => {
+      const fadeOut = setInterval(() => {
+        setRoundTextOpacity(prev => {
+          if (prev <= 0) {
+            clearInterval(fadeOut);
+            setShowRoundText(false);
+            return 0;
+          }
+          return prev - 0.05;
+        });
+      }, 50);
+    }, 2000);
 
-  // --- Перемещено: player1Attack и player2Attack на верхний уровень компонента ---
-  const player1Attack = useRef({ inProgress: false, type: null });
-  const player2Attack = useRef({ inProgress: false, type: null });
+    return () => {
+      clearTimeout(timer);
+    };
+  }, []); // Пустой массив зависимостей - эффект запускается только при монтировании
+
+  // --- Удалено: player1Attack и player2Attack перемещены на верхний уровень ---
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -139,71 +158,85 @@ const GameCanvas = () => {
     };
 
     const drawHealthBars = () => {
-      // Пиксельная полоска здоровья
       const barWidth = 300;
       const barHeight = 24;
       const barMargin = 32;
       const pixelSize = 10;
-      // Фоновые полосы
+
       ctx.save();
       ctx.globalAlpha = 1;
-      // Player1 (слева)
+
+      // --- Задний фон полос ---
       ctx.fillStyle = '#222';
+
+      // Player 1 background
       ctx.fillRect(barMargin - 4, barMargin - 4, barWidth + 8, barHeight + 8);
       ctx.strokeStyle = '#fff';
       ctx.lineWidth = 4;
       ctx.strokeRect(barMargin - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      // Player2 (справа)
-      ctx.fillStyle = '#222';
+
+      // Player 2 background
       ctx.fillRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 4;
       ctx.strokeRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      // Пиксельная заливка здоровья
-      // Player1
+
+      // --- Заполнение здоровья ---
+      // Player 1 (слева)
       ctx.fillStyle = '#e53935';
-      let p1pixels = Math.round((player1Health.current / 100) * (barWidth / pixelSize));
+      const p1pixels = Math.round((player1Health.current / 100) * (barWidth / pixelSize));
       for (let i = 0; i < p1pixels; i++) {
         ctx.fillRect(barMargin + i * pixelSize, barMargin, pixelSize - 1, barHeight);
       }
-      // Player2 (справа, убывает справа налево)
+
+      // Player 2 (справа)
       ctx.fillStyle = '#43a047';
-      let p2pixels = Math.round((player2Health.current / 100) * (barWidth / pixelSize));
+      const p2pixels = Math.round((player2Health.current / 100) * (barWidth / pixelSize));
       for (let i = 0; i < p2pixels; i++) {
         ctx.fillRect(canvasWidth - barMargin - (i + 1) * pixelSize, barMargin, pixelSize - 1, barHeight);
       }
-      ctx.restore();
 
       // --- Крестики побед ---
-      const crossSize = 18;
-      const crossGap = 8;
-      // Player1 крестики
-      for (let i = 0; i < Math.min(2, player1Wins); i++) {
-        ctx.save();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
+      // Player 1 wins
+      for (let i = 0; i < player1Wins.current; i++) {
+        const startX = barMargin + i * 30;
+        const startY = barMargin + barHeight + 30;
+
+        ctx.strokeStyle = '#ff0000';
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(barMargin + i * (crossSize + crossGap), barMargin + barHeight + 12);
-        ctx.lineTo(barMargin + i * (crossSize + crossGap) + crossSize, barMargin + barHeight + 12 + crossSize);
-        ctx.moveTo(barMargin + i * (crossSize + crossGap) + crossSize, barMargin + barHeight + 12);
-        ctx.lineTo(barMargin + i * (crossSize + crossGap), barMargin + barHeight + 12 + crossSize);
+        ctx.moveTo(startX - 12, startY - 12);
+        ctx.lineTo(startX + 12, startY + 12);
+        ctx.moveTo(startX + 12, startY - 12);
+        ctx.lineTo(startX - 12, startY + 12);
         ctx.stroke();
-        ctx.restore();
       }
-      // Player2 крестики
-      for (let i = 0; i < Math.min(2, player2Wins); i++) {
-        ctx.save();
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 3;
+
+      // Player 2 wins
+      for (let i = 0; i < player2Wins.current; i++) {
+        const startX = canvasWidth - barMargin - i * 30;
+        const startY = barMargin + barHeight + 30;
+
+        ctx.strokeStyle = '#0000ff';
+        ctx.lineWidth = 4;
         ctx.beginPath();
-        ctx.moveTo(canvasWidth - barMargin - (i + 1) * (crossSize + crossGap), barMargin + barHeight + 12);
-        ctx.lineTo(canvasWidth - barMargin - (i + 1) * (crossSize + crossGap) + crossSize, barMargin + barHeight + 12 + crossSize);
-        ctx.moveTo(canvasWidth - barMargin - (i + 1) * (crossSize + crossGap) + crossSize, barMargin + barHeight + 12);
-        ctx.lineTo(canvasWidth - barMargin - (i + 1) * (crossSize + crossGap), barMargin + barHeight + 12 + crossSize);
+        ctx.moveTo(startX - 12, startY - 12);
+        ctx.lineTo(startX + 12, startY + 12);
+        ctx.moveTo(startX + 12, startY - 12);
+        ctx.lineTo(startX - 12, startY + 12);
         ctx.stroke();
-        ctx.restore();
       }
+
+      // --- Round Text ---
+      if (showRoundText) {
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 72px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Round ${round.current}`, canvasWidth / 2, canvasHeight / 2);
+      }
+
+      ctx.restore();
     };
+
 
     const ATTACK_DAMAGE = 10;
 
@@ -242,9 +275,26 @@ const GameCanvas = () => {
     // --- Удаляем глобальные флаги регистрации урона ---
 
     const animate = () => {
+      const ctx = canvasRef.current?.getContext('2d');
+      if (!ctx) return;
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       drawBackground();
-      drawHealthBars();
+
+      // Отрисовка здоровья и крестиков побед
+      drawHealthBars();      // Всегда рисуем текст раунда, если showRoundText true
+      if (showRoundText) {
+        ctx.save();
+        ctx.globalAlpha = roundTextOpacity;
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 72px Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Round ${round.current}`, canvasWidth / 2, canvasHeight / 2);
+
+        ctx.restore();
+      }
+
       // --- Движение player1 ---
       if (keys.player1.left) player1Pos.current.x = Math.max(0, player1Pos.current.x - speed);
       if (keys.player1.right) player1Pos.current.x = Math.min(canvasWidth - player1Width, player1Pos.current.x + speed);
@@ -341,27 +391,67 @@ const GameCanvas = () => {
       if (!keys.player2.left && !keys.player2.right && player2Pos.current.y === groundY2 &&
         !player2Attack.current.inProgress && player2.currentAnimation === 'run' && player2.currentAnimation !== 'getHit') {
         player2.switchAnimation('idle');
+      }      // --- Death animation and round transition logic ---
+      if (!animate.deathHandled) animate.deathHandled = { p1: false, p2: false };
+
+      if (player1Health.current <= 0 && !animate.deathHandled.p1) {
+        player1.lockAnimation('death');
+        animate.deathHandled.p1 = true;
+        player2Wins.current += 1;
+
+      }
+      if (player2Health.current <= 0 && !animate.deathHandled.p2) {
+        player2.lockAnimation('death');
+        animate.deathHandled.p2 = true;
+        player1Wins.current += 1;
+
       }
 
-      // --- Проверка смерти и победителя ---
-      if (!isRoundOver && (player1Health.current <= 0 || player2Health.current <= 0)) {
-        setIsRoundOver(true);
-        if (!deathPlayed.current) {
-          deathPlayed.current = true;
-          if (player1Health.current <= 0 && player2Health.current <= 0) {
-            // Ничья
-            player1.switchAnimation('death');
-            player2.switchAnimation('death');
-            setTimeout(() => endRound(null), 1200);
-          } else if (player1Health.current <= 0) {
-            player1.switchAnimation('death');
-            setTimeout(() => endRound(2), 1200);
-          } else if (player2Health.current <= 0) {
-            player2.switchAnimation('death');
-            setTimeout(() => endRound(1), 1200);
-          }
+      // Проверяем окончание анимации смерти
+      if (player1Health.current <= 0 || player2Health.current <= 0) {
+        const player1Dead = player1Health.current <= 0;
+        const player2Dead = player2Health.current <= 0;
+        
+        if ((!player1Dead || (player1Dead && player1.animationEnded)) &&
+            (!player2Dead || (player2Dead && player2.animationEnded))) {
+            // Запускаем новый раунд
+          round.current += 1;
+          setShowRoundText(true);
+          setRoundTextOpacity(1);
+
+          
+          // Сброс состояний здоровья и позиций
+          player1Health.current = 100;
+          player2Health.current = 100;
+          player1Pos.current = { x: 0, y: groundY1 };
+          player2Pos.current = { x: canvasWidth - player2Width, y: groundY2 };
+          player1.animationEnded = false;
+          player2.animationEnded = false;
+          player1.currentFrame = 0;
+          player2.currentFrame = 0;
+          player1.unlockAnimation();
+          player2.unlockAnimation();
+          player1Attack.current = { inProgress: false, type: null };
+          player2Attack.current = { inProgress: false, type: null };
+          animate.deathHandled = { p1: false, p2: false };
+          
+          // Таймер для скрытия текста раунда
+          setTimeout(() => {
+            let opacity = 1;
+            const fadeOut = setInterval(() => {
+              opacity -= 0.05;
+              if (opacity <= 0) {
+                clearInterval(fadeOut);
+                setRoundTextOpacity(0);
+                setShowRoundText(false);
+              } else {
+                setRoundTextOpacity(opacity);
+              }
+            }, 50);
+          }, 2000);
         }
       }
+
       requestAnimationFrame(animate);
     };
 
@@ -464,76 +554,96 @@ const GameCanvas = () => {
       if (!keys.player1.left && !keys.player1.right && player1Pos.current.y === groundY1 && !player1Attack.current.inProgress) player1.switchAnimation('idle');
       if (!keys.player2.left && !keys.player2.right && player2Pos.current.y === groundY2 && !player2Attack.current.inProgress) player2.switchAnimation('idle');
     };
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('keydown', handleKeyDown);    window.addEventListener('keyup', handleKeyUp);
     background.onload = animate;
-
-    // --- Новая функция: завершение раунда и рестарт ---
-    // Переносим внутрь useEffect, чтобы были доступны переменные окружения
-    function endRound(winnerNum) {
-      // Считаем потенциальные победы, но не увеличиваем больше 2
-      let p1 = Math.min(2, player1Wins + (winnerNum === 1 ? 1 : 0));
-      let p2 = Math.min(2, player2Wins + (winnerNum === 2 ? 1 : 0));
-      let nextRound = round + 1;
-      // Финал: 2 победы или 3-й раунд или ничья
-      if (p1 === 2 || p2 === 2 || nextRound > 3 || winnerNum === null) {
-        setTimeout(() => {
-          if (winnerNum === 1) setPlayer1Wins(2);
-          if (winnerNum === 2) setPlayer2Wins(2);
-          if (p1 === 2) setWinner('Игрок 1');
-          else if (p2 === 2) setWinner('Игрок 2');
-          else setWinner('Ничья');
-          setCanRestart(true);
-        }, 1200); // дать анимации смерти проиграться
-        return;
-      }
-      // Если никто не победил — следующий раунд
-      setTimeout(() => {
-        if (winnerNum === 1) setPlayer1Wins(w => Math.min(2, w + 1));
-        if (winnerNum === 2) setPlayer2Wins(w => Math.min(2, w + 1));
-        setRound(r => r + 1);
-        player1Health.current = 100;
-        player2Health.current = 100;
-        player1Pos.current = { x: 0, y: canvas.height - player1.height };
-        player2Pos.current = { x: canvas.width - player2.width, y: canvas.height - player2.height };
-        player1.switchAnimation('idle');
-        player2.switchAnimation('idle');
-        setIsRoundOver(false);
-        deathPlayed.current = false;
-      }, 1200);
-    }
 
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [round, player1Wins, player2Wins, winner, isRoundOver]);
+  }, []);
 
-  // --- Сброс игры после победы или ничьей по Enter ---
-  useEffect(() => {
-    if (!canRestart) return;
-    const handler = (e) => {
-      if (e.code === 'Enter') {
-        setRound(1);
-        setPlayer1Wins(0);
-        setPlayer2Wins(0);
-        setWinner(null);
-        setIsRoundOver(false);
-        setCanRestart(false);
-        deathPlayed.current = false;
-        player1Health.current = 100;
-        player2Health.current = 100;
-        player1Pos.current = { x: 0, y: 0 };
-        player2Pos.current = { x: 0, y: 0 };
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [canRestart]);
+  // --- Перемещено: player1Attack и player2Attack на верхний уровень компонента ---
+  const player1Attack = useRef({ inProgress: false, type: null });
+  const player2Attack = useRef({ inProgress: false, type: null });
+  // --- Добавляем ссылку на функцию перехода к новому раунду ---
+  const nextRoundRef = useRef();
+  const drawVictoryCrosses = (ctx) => {
+    const crossSize = 30;
+    const spacing = 40;
+    const startY = 50;
+    
+    // Крестики для первого игрока
+    for (let i = 0; i < player1Wins; i++) {
+      const startX = 50 + (i * spacing);
+      ctx.strokeStyle = '#ff0000';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(startX - crossSize/2, startY - crossSize/2);
+      ctx.lineTo(startX + crossSize/2, startY + crossSize/2);
+      ctx.moveTo(startX + crossSize/2, startY - crossSize/2);
+      ctx.lineTo(startX - crossSize/2, startY + crossSize/2);
+      ctx.stroke();
+    }
 
-  // --- ВЫВОД НАДПИСИ О ПОБЕДИТЕЛЕ ---
-  const isFinal = !!winner;
+    // Крестики для второго игрока
+    for (let i = 0; i < player2Wins; i++) {
+      const startX = ctx.canvas.width - 50 - (i * spacing);
+      ctx.strokeStyle = '#0000ff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(startX - crossSize/2, startY - crossSize/2);
+      ctx.lineTo(startX + crossSize/2, startY + crossSize/2);
+      ctx.moveTo(startX + crossSize/2, startY - crossSize/2);
+      ctx.lineTo(startX - crossSize/2, startY + crossSize/2);
+      ctx.stroke();
+    }
+  };  // Эффект для анимации текста раунда
+      useEffect(() => {
+        let frameId;
+        let opacity = 0;
+        let fadingIn = true;
+        let fadingOut = false;
+        let visibleDuration = 2000;
+        let startTime = null;
+
+        const step = (timestamp) => {
+          if (!startTime) startTime = timestamp;
+          const elapsed = timestamp - startTime;
+
+          if (fadingIn) {
+            opacity = Math.min(1, opacity + 0.05);
+            setRoundTextOpacity(opacity);
+            if (opacity >= 1) {
+              fadingIn = false;
+              setTimeout(() => {
+                fadingOut = true;
+                startTime = null;
+                frameId = requestAnimationFrame(step);
+              }, visibleDuration);
+              return;
+            }
+          } else if (fadingOut) {
+            opacity = Math.max(0, opacity - 0.05);
+            setRoundTextOpacity(opacity);
+            if (opacity <= 0) {
+              setShowRoundText(false);
+              return;
+            }
+          }
+
+          frameId = requestAnimationFrame(step);
+        };
+
+        if (showRoundText) {
+          frameId = requestAnimationFrame(step);
+        }
+
+        return () => cancelAnimationFrame(frameId);
+      }, [showRoundText]);
+
+
   return (
     <div className="w-screen h-screen m-0 p-0 bg-black flex items-center justify-center">
       <canvas
@@ -543,12 +653,6 @@ const GameCanvas = () => {
         className="block w-full h-full"
         style={{ background: 'transparent', display: 'block' }}
       />
-      {winner && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-6xl font-bold text-white drop-shadow-lg z-50 select-none">
-          {winner === 'Ничья' ? 'Draw!' : `${winner} победил!`}
-          <div className="text-2xl mt-4">{isFinal ? 'Начать заново' : 'Нажмите Enter для рестарта'}</div>
-        </div>
-      )}
     </div>
   );
 };

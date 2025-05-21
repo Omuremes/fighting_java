@@ -50,7 +50,16 @@ export default class Player {
 
   lockAnimation(name) {
     this.isAnimationLocked = true;
-    this.switchAnimation(name);
+    // Принудительно переключаем анимацию даже если уже заблокировано
+    if (this.currentAnimation !== name) {
+      this.currentAnimation = name;
+      if (this.animations[name]) {
+        this.image = this.animations[name].image;
+        this.frameCount = this.animations[name].frameCount;
+        this.currentFrame = 0;
+        this.animationEnded = false;
+      }
+    }
   }
 
   unlockAnimation() {
@@ -111,16 +120,17 @@ export default class Player {
 
     this.frameElapsed++;
     if (this.frameElapsed % this.frameHold === 0) {
-      this.currentFrame = (this.currentFrame + 1) % this.frameCount;
-
-      if (
-        this.currentFrame === 0 &&
-        this.isAnimationLocked &&
-        this.currentAnimation === 'death'
-      ) {
-        this.animationEnded = true; // ✅ смерть закончилась
+      if (this.currentAnimation === 'death') {
+        if (this.currentFrame < this.frameCount - 1) {
+          this.currentFrame++;
+        } else {
+          this.animationEnded = true;
+        }
+      } else {
+        this.currentFrame = (this.currentFrame + 1) % this.frameCount;
       }
 
+      // Возврат к idle для других анимаций
       if (
         this.currentFrame === 0 &&
         !this.isAnimationLocked &&
