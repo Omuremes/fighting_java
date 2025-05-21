@@ -21,4 +21,5 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+springboot-firestore-backend/src/main/resources/firebase-service-account.json
 springboot-firestore-backend/target/classes/firebase-service-account.json
