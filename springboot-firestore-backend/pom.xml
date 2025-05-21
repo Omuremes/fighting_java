@@ -13,7 +13,7 @@
 
     <properties>
         <java.version>17</java.version>
-        <spring.boot.version>3.2.5</spring.boot.version>
+        <spring.boot.version>3.4.5</spring.boot.version>
         <firebase.admin.version>9.2.0</firebase.admin.version>
         <google.cloud.firestore.version>3.10.0</google.cloud.firestore.version>
     </properties>

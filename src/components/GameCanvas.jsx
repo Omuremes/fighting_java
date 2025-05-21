@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Player from '../classes/Player';
 
-const GameCanvas = () => {
+const GameCanvas = ({ gameState, onPlayerAction }) => {
   const canvasRef = useRef(null);
   const player1Pos = useRef({ x: 0, y: 0 });
   const player2Pos = useRef({ x: 0, y: 0 });
@@ -461,86 +461,94 @@ const GameCanvas = () => {
     };
 
     const handleKeyDown = (e) => {
-      // Player1 управление
-      if (e.code === 'KeyD') {
-        keys.player1.right = true;
-        player1.switchAnimation('run');
-        player1.setFacing('right');
+    // Player1 control - send actions to backend
+    if (e.code === 'KeyD') {
+      keys.player1.right = true;
+      player1.switchAnimation('run');
+      player1.setFacing('right');
+      onPlayerAction && onPlayerAction("player1", "move", "right");
+    }
+    if (e.code === 'KeyA') {
+      keys.player1.left = true;
+      player1.switchAnimation('run');
+      player1.setFacing('left');
+      onPlayerAction && onPlayerAction("player1", "move", "left");
+    }
+    if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
+      player1Velocity.current.y = -8;
+      onPlayerAction && onPlayerAction("player1", "jump");
+    }
+    if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
+      player1.switchAnimation('attack1');
+      player1Attack.current.inProgress = true;
+      player1Attack.current.type = 'attack1';
+      onPlayerAction && onPlayerAction("player1", "attack", null, "attack1");
+      
+      // Proactively apply visual effects - backend will validate the hit
+      const hitbox = getHitbox(player1);
+      const targetBox = getBodyBox(player2);
+      if (isColliding(hitbox, targetBox)) {
+        player2.switchAnimation('getHit');
       }
-      if (e.code === 'KeyA') {
-        keys.player1.left = true;
-        player1.switchAnimation('run');
-        player1.setFacing('left');
+    }
+    if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
+      player1.switchAnimation('attack2');
+      player1Attack.current.inProgress = true;
+      player1Attack.current.type = 'attack2';
+      onPlayerAction && onPlayerAction("player1", "attack", null, "attack2");
+      
+      // Proactively apply visual effects - backend will validate the hit
+      const hitbox = getHitbox(player1);
+      const targetBox = getBodyBox(player2);
+      if (isColliding(hitbox, targetBox)) {
+        player2.switchAnimation('getHit');
       }
-      if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
-        player1Velocity.current.y = -8;
-        // player1.switchAnimation('jump'); // убрано, теперь автоматом
-      }
-      if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
-        player1.switchAnimation('attack1');
-        player1Attack.current.inProgress = true;
-        player1Attack.current.type = 'attack1';
-        // Проверяем попадание только в момент нажатия
-        const hitbox = getHitbox(player1);
-        const targetBox = getBodyBox(player2);
-        if (isColliding(hitbox, targetBox)) {
-          player2Health.current = Math.max(0, player2Health.current - ATTACK_DAMAGE);
-          player2.switchAnimation('getHit');
-        }
-      }
-      if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
-        player1.switchAnimation('attack2');
-        player1Attack.current.inProgress = true;
-        player1Attack.current.type = 'attack2';
-        // Проверяем попадание только в момент нажатия
-        const hitbox = getHitbox(player1);
-        const targetBox = getBodyBox(player2);
-        if (isColliding(hitbox, targetBox)) {
-          player2Health.current = Math.max(0, player2Health.current - ATTACK_DAMAGE);
-          player2.switchAnimation('getHit');
-        }
-      }
+    }
 
-      // Player2 управление
-      if (e.code === 'ArrowLeft') {
-        keys.player2.left = true;
-        player2.switchAnimation('run');
-        player2.setFacing('left');
+    // Player2 control - send actions to backend
+    if (e.code === 'ArrowLeft') {
+      keys.player2.left = true;
+      player2.switchAnimation('run');
+      player2.setFacing('left');
+      onPlayerAction && onPlayerAction("player2", "move", "left");
+    }
+    if (e.code === 'ArrowRight') {
+      keys.player2.right = true;
+      player2.switchAnimation('run');
+      player2.setFacing('right');
+      onPlayerAction && onPlayerAction("player2", "move", "right");
+    }
+    if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
+      player2Velocity.current.y = -8;
+      onPlayerAction && onPlayerAction("player2", "jump");
+    }
+    if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
+      player2.switchAnimation('attack1');
+      player2Attack.current.inProgress = true;
+      player2Attack.current.type = 'attack1';
+      onPlayerAction && onPlayerAction("player2", "attack", null, "attack1");
+      
+      // Proactively apply visual effects - backend will validate the hit
+      const hitbox = getHitbox(player2);
+      const targetBox = getBodyBox(player1);
+      if (isColliding(hitbox, targetBox)) {
+        player1.switchAnimation('getHit');
       }
-      if (e.code === 'ArrowRight') {
-        keys.player2.right = true;
-        player2.switchAnimation('run');
-        player2.setFacing('right');
+    }
+    if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
+      player2.switchAnimation('attack2');
+      player2Attack.current.inProgress = true;
+      player2Attack.current.type = 'attack2';
+      onPlayerAction && onPlayerAction("player2", "attack", null, "attack2");
+      
+      // Proactively apply visual effects - backend will validate the hit
+      const hitbox = getHitbox(player2);
+      const targetBox = getBodyBox(player1);
+      if (isColliding(hitbox, targetBox)) {
+        player1.switchAnimation('getHit');
       }
-      if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
-        player2Velocity.current.y = -8;
-        // player2.switchAnimation('jump'); // убрано, теперь автоматом
-      }
-      if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
-        player2.switchAnimation('attack1');
-        player2Attack.current.inProgress = true;
-        player2Attack.current.type = 'attack1';
-        // Проверяем попадание только в момент нажатия
-        const hitbox = getHitbox(player2);
-        const targetBox = getBodyBox(player1);
-        if (isColliding(hitbox, targetBox)) {
-          player1Health.current = Math.max(0, player1Health.current - ATTACK_DAMAGE);
-          player1.switchAnimation('getHit');
-        }
-      }
-      if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
-        player2.switchAnimation('attack2');
-        player2Attack.current.inProgress = true;
-        player2Attack.current.type = 'attack2';
-        // Проверяем попадание только в момент нажатия
-        const hitbox = getHitbox(player2);
-        const targetBox = getBodyBox(player1);
-        if (isColliding(hitbox, targetBox)) {
-          player1Health.current = Math.max(0, player1Health.current - ATTACK_DAMAGE);
-          player1.switchAnimation('getHit');
-        }
-      }
-    };
+    }
+  };
 
     const handleKeyUp = (e) => {
       // Player1

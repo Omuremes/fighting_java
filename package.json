@@ -1,5 +1,6 @@
 {
   "name": "fighting-game",
+  "proxy": "http://localhost:8080",
   "version": "0.1.0",
   "private": true,
   "dependencies": {
@@ -9,6 +10,7 @@
     "react-scripts": "5.0.1"
   },
   "scripts": {
+
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
