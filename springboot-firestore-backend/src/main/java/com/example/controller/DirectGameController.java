@@ -1,9 +1,5 @@
 package com.example.controller;
 
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ExecutionException;
-
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -14,28 +10,29 @@ import com.example.model.GameAction;
 import com.example.model.Player;
 import com.example.service.GameService;
 
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+
 @RestController
-@RequestMapping("/api/games")
+@RequestMapping("/games")
 @CrossOrigin(
     origins = "http://localhost:3000",
     methods = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE, RequestMethod.OPTIONS},
     allowedHeaders = "*",
     allowCredentials = "true"
 )
-public class GameController {
+public class DirectGameController {
 
     @Autowired
     private GameService gameService;
 
-    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(GameController.class);
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(DirectGameController.class);
 
-    // ✅ Создание новой игры
     @PostMapping({"", "/"})
     public ResponseEntity<Game> createGame(@RequestBody Map<String, Map<String, String>> request) {
+        logger.info("=== Request received on /games ===");
         try {
-            logger.info("=== Creating New Game ===");
-            logger.debug("Request body: {}", request);
-
             Map<String, String> player1Data = request.get("player1");
             Map<String, String> player2Data = request.get("player2");
 
@@ -45,56 +42,27 @@ public class GameController {
             }
 
             Player player1 = new Player(player1Data.get("id"), player1Data.get("name"));
-            Player player2 = new Player(player2Data.get("id"), player2Data.get("name"));            Game game = gameService.createGame(player1, player2);
+            Player player2 = new Player(player2Data.get("id"), player2Data.get("name"));            
+            Game game = gameService.createGame(player1, player2);
             logger.info("Game created with ID: {}", game.getId());
 
             return ResponseEntity.ok()
                 .header("Content-Type", "application/json")
                 .body(game);
         } catch (Exception e) {
-            logger.error("Failed to create game", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            logger.error("Failed to create game: {}", e.getMessage(), e);
+            return ResponseEntity.status(500).build();
         }
     }
-
-    // ✅ Получение игры по ID
-    @GetMapping("/{id}")    public ResponseEntity<Game> getGame(@PathVariable("id") String id) {
+    
+    @PostMapping({"/action", "/action/"})
+    public ResponseEntity<Game> processAction(@RequestBody GameAction action) {
+        logger.info("=== Processing action on /games/action ===");
+        logger.info("Action details: gameId={}, playerId={}, actionType={}, direction={}, attackType={}", 
+                  action.getGameId(), action.getPlayerId(), action.getActionType(), 
+                  action.getDirection(), action.getAttackType());
+        
         try {
-            Game game = gameService.getGame(id);
-            if (game == null) {
-                logger.warn("Game not found: {}", id);
-                return ResponseEntity.notFound().build();
-            }
-            return ResponseEntity.ok()
-                .header("Content-Type", "application/json")
-                .body(game);
-        } catch (ExecutionException | InterruptedException e) {
-            logger.error("Error retrieving game", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // ✅ Получение всех игр
-    @GetMapping    public ResponseEntity<List<Game>> getAllGames() {
-        try {
-            List<Game> games = gameService.getAllGames();
-            return ResponseEntity.ok()
-                .header("Content-Type", "application/json")
-                .body(games);
-        } catch (ExecutionException | InterruptedException e) {
-            logger.error("Error retrieving all games", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
-    }
-
-    // ✅ Обработка действий игрока
-    @PostMapping({"/action", "/action/"})    public ResponseEntity<Game> processAction(@RequestBody GameAction action) {
-        try {
-            logger.info("=== Processing Action ===");
-            logger.info("Action details: gameId={}, playerId={}, actionType={}, direction={}, attackType={}", 
-                      action.getGameId(), action.getPlayerId(), action.getActionType(), 
-                      action.getDirection(), action.getAttackType());
-            
             Game updatedGame = gameService.processAction(action);
             
             if (updatedGame == null) {
@@ -107,12 +75,30 @@ public class GameController {
                       updatedGame.getPlayer1().getHealth(), 
                       updatedGame.getPlayer2().getHealth(),
                       updatedGame.getRound());
-            
+                      
             return ResponseEntity.ok()
                 .header("Content-Type", "application/json")
                 .body(updatedGame);
         } catch (ExecutionException | InterruptedException e) {
             logger.error("Error processing action", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<Game> getGame(@PathVariable("id") String id) {
+        logger.info("=== Getting game on /games/{} ===", id);
+        try {
+            Game game = gameService.getGame(id);
+            if (game == null) {
+                logger.warn("Game not found: {}", id);
+                return ResponseEntity.notFound().build();
+            }
+            return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(game);
+        } catch (ExecutionException | InterruptedException e) {
+            logger.error("Error retrieving game", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
