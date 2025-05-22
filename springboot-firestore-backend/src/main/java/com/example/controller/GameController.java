@@ -45,7 +45,7 @@ public class GameController {
     
     // Get a game by ID
     @GetMapping("/{id}")
-    public ResponseEntity<Game> getGame(@PathVariable String id) {
+    public ResponseEntity<Game> getGame(@PathVariable("id") String id) {
         try {
             Game game = gameService.getGame(id);
             if (game == null) {

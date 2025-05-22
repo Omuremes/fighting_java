@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import GameCanvas from './components/GameCanvas';
 
 function App() {
@@ -6,6 +6,7 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [gameId, setGameId] = useState(null);
+  const pollingIntervalRef = useRef(null);
 
   // Fetch current game state
   const fetchGameState = useCallback(() => {
@@ -63,11 +64,24 @@ function App() {
       createNewGame();
     } else {
       fetchGameState();
+      
+      // Set up polling for game state updates
+      if (!pollingIntervalRef.current) {
+        pollingIntervalRef.current = setInterval(fetchGameState, 1000); // Poll every second
+      }
     }
+    
+    // Clean up interval on unmount
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
   }, [gameId, fetchGameState, createNewGame]);
 
   // Send player action to backend
-  const sendPlayerAction = (playerId, actionType, direction = null, attackType = null) => {
+  const sendPlayerAction = useCallback((playerId, actionType, direction = null, attackType = null) => {
     if (!gameId) return;
     
     const action = {
@@ -77,6 +91,8 @@ function App() {
       direction: direction,
       attackType: attackType
     };
+    
+    console.log(`Sending action: ${actionType} for player: ${playerId}`);
     
     fetch('http://localhost:8082/api/games/action', {
       method: 'POST',
@@ -89,9 +105,16 @@ function App() {
       if (!res.ok) throw new Error('Failed to process action');
       return res.json();
     })
-    .then(data => setGameState(data))
-    .catch(err => console.error('Error sending action:', err));
-  };
+    .then(data => {
+      setGameState(data);
+      console.log('Game state updated from server:', data);
+    })
+    .catch(err => {
+      console.error('Error sending action:', err);
+      // If there's an error, try to refresh the game state
+      fetchGameState();
+    });
+  }, [gameId, fetchGameState]);
 
   return (
     <div className="bg-gray-900 h-screen flex flex-col items-center justify-center">

@@ -12,3 +12,4 @@ com/example/config/FirebaseConfig.class
 com/example/model/Game.class
 com/example/service/GameService.class
 com/example/model/GameAction.class
+com/example/config/CorsConfig.class

@@ -1,3 +1,4 @@
+// filepath: /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/src/components/GameCanvas.jsx
 import React, { useEffect, useRef, useState } from 'react';
 import Player from '../classes/Player';
 
@@ -16,6 +17,48 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
   const player2Wins = useRef(0);
   const speed = 8;
   const gravity = 0.10;
+  const player1Attack = useRef({ inProgress: false, type: null });
+  const player2Attack = useRef({ inProgress: false, type: null });
+  const nextRoundRef = useRef();
+
+  // Эффект для обновления состояния игры из gameState prop
+  useEffect(() => {
+    if (gameState) {
+      console.log('Game state updated in GameCanvas:', gameState);
+      
+      // Update health and wins from backend
+      player1Health.current = gameState.player1.health;
+      player2Health.current = gameState.player2.health;
+      player1Wins.current = gameState.player1.wins;
+      player2Wins.current = gameState.player2.wins;
+      round.current = gameState.round;
+      
+      // Update player positions from backend using lerp (linear interpolation)
+      // for smoother transitions
+      const p1x = gameState.player1.x;
+      const p2x = gameState.player2.x;
+      
+      // Only update positions if they're significantly different (to avoid small fluctuations)
+      const threshold = 25; // Increased threshold slightly to reduce small updates
+      const lerpFactor = 0.3; // Value between 0 and 1 - higher means faster adjustment
+      
+      if (Math.abs(player1Pos.current.x - p1x) > threshold) {
+        // Gradually move towards the target position
+        player1Pos.current.x = player1Pos.current.x + (p1x - player1Pos.current.x) * lerpFactor;
+      }
+      
+      if (Math.abs(player2Pos.current.x - p2x) > threshold) {
+        // Gradually move towards the target position
+        player2Pos.current.x = player2Pos.current.x + (p2x - player2Pos.current.x) * lerpFactor;
+      }
+      
+      // If a round just ended, display round text
+      if (gameState.round !== round.current) {
+        setShowRoundText(true);
+        setRoundTextOpacity(1);
+      }
+    }
+  }, [gameState, setShowRoundText, setRoundTextOpacity]);
 
   // Эффект для начальной анимации текста раунда при старте
   useEffect(() => {
@@ -42,7 +85,50 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
     };
   }, []); // Пустой массив зависимостей - эффект запускается только при монтировании
 
-  // --- Удалено: player1Attack и player2Attack перемещены на верхний уровень ---
+  // Эффект для анимации текста раунда
+  useEffect(() => {
+    let frameId;
+    let opacity = 0;
+    let fadingIn = true;
+    let fadingOut = false;
+    let visibleDuration = 2000;
+    let startTime = null;
+
+    const step = (timestamp) => {
+      if (!startTime) startTime = timestamp;
+      // We're using startTime to track when fading should begin/end
+      // but not using elapsed directly since we have our own animation timing logic
+      
+      if (fadingIn) {
+        opacity = Math.min(1, opacity + 0.05);
+        setRoundTextOpacity(opacity);
+        if (opacity >= 1) {
+          fadingIn = false;
+          setTimeout(() => {
+            fadingOut = true;
+            startTime = null;
+            frameId = requestAnimationFrame(step);
+          }, visibleDuration);
+          return;
+        }
+      } else if (fadingOut) {
+        opacity = Math.max(0, opacity - 0.05);
+        setRoundTextOpacity(opacity);
+        if (opacity <= 0) {
+          setShowRoundText(false);
+          return;
+        }
+      }
+
+      frameId = requestAnimationFrame(step);
+    };
+
+    if (showRoundText) {
+      frameId = requestAnimationFrame(step);
+    }
+
+    return () => cancelAnimationFrame(frameId);
+  }, [showRoundText, setRoundTextOpacity, setShowRoundText]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -82,20 +168,7 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       death: { imageSrc: '/assets/player2/Sprites/Death.png', frameCount: 9 },
     };
 
-    // --- Исправляем пропорции и увеличиваем размеры персонажей ---
-    // Размеры исходных спрайтов: player1 (800x200), player2 (1350x135)
-    // Для player1: сохраняем пропорции 4:1 (ширина:высота)
-    //   const player1Width = Math.min(600, window.innerWidth * 2); // увеличено
-    // const player1Height = player1Width / 4;
-    // Для player2: сохраняем пропорции ~10:1 (ширина:высота)
-    // const player2Width = Math.min(1000, window.innerWidth * 5); // увеличено
-    // const player2Height = player2Width / 10;
-    // const groundY1 = window.innerHeight - player1Height - 40;
-    // const groundY2 = window.innerHeight - player2Height - 40;
-
-    // --- Используем исходные размеры спрайтов для отображения персонажей ---
-    // player1: 800x200, player2: 1350x135
-    // canvas теперь на весь экран
+    // canvas на весь экран
     const canvasWidth = window.innerWidth;
     const canvasHeight = window.innerHeight;
     canvas.width = canvasWidth;
@@ -153,7 +226,7 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
         sh = canvasHeight;
       }
       // Смещаем фон вверх, чтобы "земля" совпала с низом canvas
-      sy += 60; // подберите значение визуально, если нужно
+      sy += 60; 
       ctx.drawImage(background, sx, sy, sw, sh, dx, dy, dw, dh);
     };
 
@@ -237,42 +310,126 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       ctx.restore();
     };
 
-
-    const ATTACK_DAMAGE = 10;
-
     // Для регистрации ударов
     // Хитбоксы (простые прямоугольники)
-    function getHitbox(player, width = 40, height = 120) {
-      // Сдвигаем hitbox максимально близко к персонажу (отступ 150px от края)
-      const offset = 150;
+    function getHitbox(player, width = 70, height = 100) {
+      // Create appropriate hitbox based on character facing direction
+      let x;
+      
+      if (player.facing === 'right') {
+        // Right-facing hitbox should be positioned to the right
+        x = player.position.x + player.width - 150; // Place hitbox at the front of character
+      } else {
+        // Left-facing hitbox should be positioned to the left
+        x = player.position.x + 80; // Place hitbox at the front of character
+      }
+      
       return {
-        x: player.position.x + (player.facing === 'right' ? player.width - width - offset : offset),
-        y: player.position.y + player.height - height,
-        width,
+        x: x,
+        y: player.position.y + player.height - height - 20, // Raised a bit for better alignment
+        width: width,
         height,
+        facing: player.facing
       };
     }
 
-    function getBodyBox(player, width = 60, height = 170) {
-      // Основной хитбокс тела
+    function getBodyBox(player, width = 90, height = 150) {
+      // Center the bodybox on the player sprite for better hit detection
       return {
         x: player.position.x + (player.width - width) / 2,
-        y: player.position.y + player.height - height,
+        y: player.position.y + player.height - height - 20, // Raised to match hitbox
         width,
-        height,
+        height
       };
     }
 
-    function isColliding(boxA, boxB) {
-      return (
-        boxA.x < boxB.x + boxB.width &&
-        boxA.x + boxA.width > boxB.x &&
-        boxA.y < boxB.y + boxB.height &&
-        boxA.y + boxA.height > boxB.y
+    function isColliding(attackerBox, defenderBox) {
+      // Basic collision check with improved sensitivity
+      const basicCollision = (
+        attackerBox.x < defenderBox.x + defenderBox.width &&
+        attackerBox.x + attackerBox.width > defenderBox.x &&
+        attackerBox.y < defenderBox.y + defenderBox.height &&
+        attackerBox.y + attackerBox.height > defenderBox.y
       );
+      
+      // Direction check - attacker must be facing the defender
+      let correctDirection = false;
+      
+      // For right-facing attacker, their x position should be left of the defender's center
+      if (attackerBox.facing === 'right' && 
+          (attackerBox.x + attackerBox.width/2) < (defenderBox.x + defenderBox.width/2)) {
+        correctDirection = true;
+      } 
+      // For left-facing attacker, their x position should be right of the defender's center
+      else if (attackerBox.facing === 'left' && 
+               (attackerBox.x + attackerBox.width/2) > (defenderBox.x + defenderBox.width/2)) {
+        correctDirection = true;
+      }
+      
+      // Log collision details for every attack attempt
+      console.log("Collision check:", {
+        basicCollision,
+        correctDirection,
+        attackerFacing: attackerBox.facing,
+        attackerX: attackerBox.x,
+        attackerXCenter: attackerBox.x + attackerBox.width/2,
+        defenderX: defenderBox.x,
+        defenderXCenter: defenderBox.x + defenderBox.width/2,
+        distance: Math.abs((attackerBox.x + attackerBox.width/2) - (defenderBox.x + defenderBox.width/2))
+      });
+      
+      return basicCollision && correctDirection;
     }
 
-    // --- Удаляем глобальные флаги регистрации урона ---
+    const checkCollision = (attackerHitbox, targetPos) => {
+      const hitboxWidth = 30;  // Adjust based on character size
+      const hitboxHeight = 50; // Adjust based on character size
+
+      // Attacker's hitbox (relative to their position)
+      const attackBox = {
+        x: attackerHitbox.x,
+        y: attackerHitbox.y,
+        width: hitboxWidth,
+        height: hitboxHeight
+      };
+
+      // Target's hurtbox (their position and size)
+      const targetBox = {
+        x: targetPos.x,
+        y: targetPos.y,
+        width: hitboxWidth,
+        height: hitboxHeight
+      };
+
+      // Check if the boxes overlap
+      return !(attackBox.x + attackBox.width < targetBox.x || 
+              attackBox.x > targetBox.x + targetBox.width ||
+              attackBox.y + attackBox.height < targetBox.y ||
+              attackBox.y > targetBox.y + targetBox.height);
+    };
+
+    const handleAttackCollision = (attackerPos, attackerAttack, targetPos, isPlayer1Attacking) => {
+      if (!attackerAttack.inProgress) return false;
+
+      // Calculate attack hitbox based on direction and position
+      const hitbox = {
+        x: attackerPos.x + (attackerAttack.direction === 'right' ? 30 : -60), // Offset based on direction
+        y: attackerPos.y
+      };
+
+      if (checkCollision(hitbox, targetPos)) {
+        // Hit confirmed
+        if (isPlayer1Attacking) {
+          onPlayerAction && onPlayerAction("player2", "hit", attackerAttack.direction);
+          player2.switchAnimation('hit');
+        } else {
+          onPlayerAction && onPlayerAction("player1", "hit", attackerAttack.direction);
+          player1.switchAnimation('hit');
+        }
+        return true;
+      }
+      return false;
+    };
 
     const animate = () => {
       const ctx = canvasRef.current?.getContext('2d');
@@ -282,7 +439,8 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       drawBackground();
 
       // Отрисовка здоровья и крестиков побед
-      drawHealthBars();      // Всегда рисуем текст раунда, если showRoundText true
+      drawHealthBars();      
+      // Всегда рисуем текст раунда, если showRoundText true
       if (showRoundText) {
         ctx.save();
         ctx.globalAlpha = roundTextOpacity;
@@ -391,20 +549,21 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       if (!keys.player2.left && !keys.player2.right && player2Pos.current.y === groundY2 &&
         !player2Attack.current.inProgress && player2.currentAnimation === 'run' && player2.currentAnimation !== 'getHit') {
         player2.switchAnimation('idle');
-      }      // --- Death animation and round transition logic ---
+      }      
+      
+      // --- Death animation and round transition logic ---
       if (!animate.deathHandled) animate.deathHandled = { p1: false, p2: false };
 
       if (player1Health.current <= 0 && !animate.deathHandled.p1) {
         player1.lockAnimation('death');
         animate.deathHandled.p1 = true;
         player2Wins.current += 1;
-
       }
+      
       if (player2Health.current <= 0 && !animate.deathHandled.p2) {
         player2.lockAnimation('death');
         animate.deathHandled.p2 = true;
         player1Wins.current += 1;
-
       }
 
       // Проверяем окончание анимации смерти
@@ -418,7 +577,6 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
           round.current += 1;
           setShowRoundText(true);
           setRoundTextOpacity(1);
-
           
           // Сброс состояний здоровья и позиций
           player1Health.current = 100;
@@ -461,108 +619,181 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
     };
 
     const handleKeyDown = (e) => {
-    // Player1 control - send actions to backend
-    if (e.code === 'KeyD') {
-      keys.player1.right = true;
-      player1.switchAnimation('run');
-      player1.setFacing('right');
-      onPlayerAction && onPlayerAction("player1", "move", "right");
-    }
-    if (e.code === 'KeyA') {
-      keys.player1.left = true;
-      player1.switchAnimation('run');
-      player1.setFacing('left');
-      onPlayerAction && onPlayerAction("player1", "move", "left");
-    }
-    if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
-      player1Velocity.current.y = -8;
-      onPlayerAction && onPlayerAction("player1", "jump");
-    }
-    if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
-      player1.switchAnimation('attack1');
-      player1Attack.current.inProgress = true;
-      player1Attack.current.type = 'attack1';
-      onPlayerAction && onPlayerAction("player1", "attack", null, "attack1");
-      
-      // Proactively apply visual effects - backend will validate the hit
-      const hitbox = getHitbox(player1);
-      const targetBox = getBodyBox(player2);
-      if (isColliding(hitbox, targetBox)) {
-        player2.switchAnimation('getHit');
+      // Player1 control - send actions to backend
+      if (e.code === 'KeyD') {
+        keys.player1.right = true;
+        player1.switchAnimation('run');
+        player1.setFacing('right');
+        onPlayerAction && onPlayerAction("player1", "move", "right");
       }
-    }
-    if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
-      player1.switchAnimation('attack2');
-      player1Attack.current.inProgress = true;
-      player1Attack.current.type = 'attack2';
-      onPlayerAction && onPlayerAction("player1", "attack", null, "attack2");
-      
-      // Proactively apply visual effects - backend will validate the hit
-      const hitbox = getHitbox(player1);
-      const targetBox = getBodyBox(player2);
-      if (isColliding(hitbox, targetBox)) {
-        player2.switchAnimation('getHit');
+      if (e.code === 'KeyA') {
+        keys.player1.left = true;
+        player1.switchAnimation('run');
+        player1.setFacing('left');
+        onPlayerAction && onPlayerAction("player1", "move", "left");
       }
-    }
+      if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
+        player1Velocity.current.y = -8;
+        onPlayerAction && onPlayerAction("player1", "jump");
+      }
+      if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
+        player1.switchAnimation('attack1');
+        player1Attack.current.inProgress = true;
+        player1Attack.current.type = 'attack1';
+        
+        // Proactively apply visual effects with adjusted hitboxes
+        const hitbox = getHitbox(player1);
+        const targetBox = getBodyBox(player2);
+        const frontendHit = isColliding(hitbox, targetBox);
+        
+        // Log the collision details
+        console.log("Player 1 attack:", {
+          distance: Math.abs(player1Pos.current.x - player2Pos.current.x),
+          hitboxX: hitbox.x,
+          hitboxWidth: hitbox.width,
+          bodyBoxX: targetBox.x,
+          bodyBoxWidth: targetBox.width,
+          facing: player1.facing,
+          hit: frontendHit
+        });
+        
+        if (frontendHit) {
+          player2.switchAnimation('getHit');
+        }
+        
+        // Send to backend for validation and state update
+        onPlayerAction && onPlayerAction("player1", "attack", null, "attack1");
+      }
+      if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
+        player1.switchAnimation('attack2');
+        player1Attack.current.inProgress = true;
+        player1Attack.current.type = 'attack2';
+        
+        // Proactively apply visual effects with adjusted hitboxes
+        const hitbox = getHitbox(player1);
+        const targetBox = getBodyBox(player2);
+        const frontendHit = isColliding(hitbox, targetBox);
+        
+        // Log the collision details
+        console.log("Player 1 attack:", {
+          distance: Math.abs(player1Pos.current.x - player2Pos.current.x),
+          hitboxX: hitbox.x,
+          hitboxWidth: hitbox.width,
+          bodyBoxX: targetBox.x,
+          bodyBoxWidth: targetBox.width,
+          facing: player1.facing,
+          hit: frontendHit
+        });
+        
+        if (frontendHit) {
+          player2.switchAnimation('getHit');
+        }
+        
+        // Send to backend for validation and state update
+        onPlayerAction && onPlayerAction("player1", "attack", null, "attack2");
+      }
 
-    // Player2 control - send actions to backend
-    if (e.code === 'ArrowLeft') {
-      keys.player2.left = true;
-      player2.switchAnimation('run');
-      player2.setFacing('left');
-      onPlayerAction && onPlayerAction("player2", "move", "left");
-    }
-    if (e.code === 'ArrowRight') {
-      keys.player2.right = true;
-      player2.switchAnimation('run');
-      player2.setFacing('right');
-      onPlayerAction && onPlayerAction("player2", "move", "right");
-    }
-    if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
-      player2Velocity.current.y = -8;
-      onPlayerAction && onPlayerAction("player2", "jump");
-    }
-    if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
-      player2.switchAnimation('attack1');
-      player2Attack.current.inProgress = true;
-      player2Attack.current.type = 'attack1';
-      onPlayerAction && onPlayerAction("player2", "attack", null, "attack1");
-      
-      // Proactively apply visual effects - backend will validate the hit
-      const hitbox = getHitbox(player2);
-      const targetBox = getBodyBox(player1);
-      if (isColliding(hitbox, targetBox)) {
-        player1.switchAnimation('getHit');
+      // Player2 control - send actions to backend
+      if (e.code === 'ArrowLeft') {
+        keys.player2.left = true;
+        player2.switchAnimation('run');
+        player2.setFacing('left');
+        onPlayerAction && onPlayerAction("player2", "move", "left");
       }
-    }
-    if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
-      player2.switchAnimation('attack2');
-      player2Attack.current.inProgress = true;
-      player2Attack.current.type = 'attack2';
-      onPlayerAction && onPlayerAction("player2", "attack", null, "attack2");
-      
-      // Proactively apply visual effects - backend will validate the hit
-      const hitbox = getHitbox(player2);
-      const targetBox = getBodyBox(player1);
-      if (isColliding(hitbox, targetBox)) {
-        player1.switchAnimation('getHit');
+      if (e.code === 'ArrowRight') {
+        keys.player2.right = true;
+        player2.switchAnimation('run');
+        player2.setFacing('right');
+        onPlayerAction && onPlayerAction("player2", "move", "right");
       }
-    }
-  };
+      if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
+        player2Velocity.current.y = -8;
+        onPlayerAction && onPlayerAction("player2", "jump");
+      }
+      if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
+        player2.switchAnimation('attack1');
+        player2Attack.current.inProgress = true;
+        player2Attack.current.type = 'attack1';
+        
+        // Proactively apply visual effects with adjusted hitboxes
+        const hitbox = getHitbox(player2);
+        const targetBox = getBodyBox(player1);
+        const frontendHit = isColliding(hitbox, targetBox);
+        
+        // Log the collision details
+        console.log("Player 2 attack:", {
+          distance: Math.abs(player2Pos.current.x - player1Pos.current.x),
+          hitboxX: hitbox.x,
+          hitboxWidth: hitbox.width,
+          bodyBoxX: targetBox.x,
+          bodyBoxWidth: targetBox.width,
+          facing: player2.facing,
+          hit: frontendHit
+        });
+        
+        if (frontendHit) {
+          player1.switchAnimation('getHit');
+        }
+        
+        // Send to backend for validation and state update
+        onPlayerAction && onPlayerAction("player2", "attack", null, "attack1");
+      }
+      if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
+        player2.switchAnimation('attack2');
+        player2Attack.current.inProgress = true;
+        player2Attack.current.type = 'attack2';
+        
+        // Proactively apply visual effects with adjusted hitboxes
+        const hitbox = getHitbox(player2);
+        const targetBox = getBodyBox(player1);
+        const frontendHit = isColliding(hitbox, targetBox);
+        
+        // Log the collision details
+        console.log("Player 2 attack:", {
+          distance: Math.abs(player2Pos.current.x - player1Pos.current.x),
+          hitboxX: hitbox.x,
+          hitboxWidth: hitbox.width,
+          bodyBoxX: targetBox.x,
+          bodyBoxWidth: targetBox.width,
+          facing: player2.facing,
+          hit: frontendHit
+        });
+        
+        if (frontendHit) {
+          player1.switchAnimation('getHit');
+        }
+        
+        // Send to backend for validation and state update
+        onPlayerAction && onPlayerAction("player2", "attack", null, "attack2");
+      }
+    };
 
     const handleKeyUp = (e) => {
       // Player1
-      if (e.code === 'KeyD') keys.player1.right = false;
-      if (e.code === 'KeyA') keys.player1.left = false;
+      if (e.code === 'KeyD') {
+        keys.player1.right = false;
+        onPlayerAction && onPlayerAction("player1", "stop", "right");
+      }
+      if (e.code === 'KeyA') {
+        keys.player1.left = false;
+        onPlayerAction && onPlayerAction("player1", "stop", "left");
+      }
       // Player2
-      if (e.code === 'ArrowLeft') keys.player2.left = false;
-      if (e.code === 'ArrowRight') keys.player2.right = false;
-      // --- Исправлено: не сбрасывать анимацию удара по отпусканию кнопки ---
-      // Сброс анимации на idle, если не двигается и не атакует
+      if (e.code === 'ArrowLeft') {
+        keys.player2.left = false;
+        onPlayerAction && onPlayerAction("player2", "stop", "left");
+      }
+      if (e.code === 'ArrowRight') {
+        keys.player2.right = false;
+        onPlayerAction && onPlayerAction("player2", "stop", "right");
+      }
+      // Reset animation to idle if not moving and not attacking
       if (!keys.player1.left && !keys.player1.right && player1Pos.current.y === groundY1 && !player1Attack.current.inProgress) player1.switchAnimation('idle');
       if (!keys.player2.left && !keys.player2.right && player2Pos.current.y === groundY2 && !player2Attack.current.inProgress) player2.switchAnimation('idle');
     };
-    window.addEventListener('keydown', handleKeyDown);    window.addEventListener('keyup', handleKeyUp);
+    
+    window.addEventListener('keydown', handleKeyDown);    
+    window.addEventListener('keyup', handleKeyUp);
     background.onload = animate;
 
     return () => {
@@ -570,87 +801,7 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
-
-  // --- Перемещено: player1Attack и player2Attack на верхний уровень компонента ---
-  const player1Attack = useRef({ inProgress: false, type: null });
-  const player2Attack = useRef({ inProgress: false, type: null });
-  // --- Добавляем ссылку на функцию перехода к новому раунду ---
-  const nextRoundRef = useRef();
-  const drawVictoryCrosses = (ctx) => {
-    const crossSize = 30;
-    const spacing = 40;
-    const startY = 50;
-    
-    // Крестики для первого игрока
-    for (let i = 0; i < player1Wins; i++) {
-      const startX = 50 + (i * spacing);
-      ctx.strokeStyle = '#ff0000';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(startX - crossSize/2, startY - crossSize/2);
-      ctx.lineTo(startX + crossSize/2, startY + crossSize/2);
-      ctx.moveTo(startX + crossSize/2, startY - crossSize/2);
-      ctx.lineTo(startX - crossSize/2, startY + crossSize/2);
-      ctx.stroke();
-    }
-
-    // Крестики для второго игрока
-    for (let i = 0; i < player2Wins; i++) {
-      const startX = ctx.canvas.width - 50 - (i * spacing);
-      ctx.strokeStyle = '#0000ff';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(startX - crossSize/2, startY - crossSize/2);
-      ctx.lineTo(startX + crossSize/2, startY + crossSize/2);
-      ctx.moveTo(startX + crossSize/2, startY - crossSize/2);
-      ctx.lineTo(startX - crossSize/2, startY + crossSize/2);
-      ctx.stroke();
-    }
-  };  // Эффект для анимации текста раунда
-      useEffect(() => {
-        let frameId;
-        let opacity = 0;
-        let fadingIn = true;
-        let fadingOut = false;
-        let visibleDuration = 2000;
-        let startTime = null;
-
-        const step = (timestamp) => {
-          if (!startTime) startTime = timestamp;
-          const elapsed = timestamp - startTime;
-
-          if (fadingIn) {
-            opacity = Math.min(1, opacity + 0.05);
-            setRoundTextOpacity(opacity);
-            if (opacity >= 1) {
-              fadingIn = false;
-              setTimeout(() => {
-                fadingOut = true;
-                startTime = null;
-                frameId = requestAnimationFrame(step);
-              }, visibleDuration);
-              return;
-            }
-          } else if (fadingOut) {
-            opacity = Math.max(0, opacity - 0.05);
-            setRoundTextOpacity(opacity);
-            if (opacity <= 0) {
-              setShowRoundText(false);
-              return;
-            }
-          }
-
-          frameId = requestAnimationFrame(step);
-        };
-
-        if (showRoundText) {
-          frameId = requestAnimationFrame(step);
-        }
-
-        return () => cancelAnimationFrame(frameId);
-      }, [showRoundText]);
-
+  }, [onPlayerAction]);
 
   return (
     <div className="w-screen h-screen m-0 p-0 bg-black flex items-center justify-center">

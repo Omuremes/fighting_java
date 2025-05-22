@@ -1,4 +1,5 @@
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/Application.java
+/Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/config/CorsConfig.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/config/FirebaseConfig.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/config/WebConfig.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/FrontendController.java

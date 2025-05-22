@@ -10,6 +10,8 @@ public class Player {
     private int wins = 0;
     private String currentAnimation = "idle";
     private boolean isAttacking = false;
+    private int width = 500; // Default width for player sprites
+    private int height = 267; // Default height for player sprites
     
     public Player() {
     }
@@ -92,5 +94,21 @@ public class Player {
     
     public void setAttacking(boolean attacking) {
         isAttacking = attacking;
+    }
+    
+    public int getWidth() {
+        return width;
+    }
+    
+    public void setWidth(int width) {
+        this.width = width;
+    }
+    
+    public int getHeight() {
+        return height;
+    }
+    
+    public void setHeight(int height) {
+        this.height = height;
     }
 }
