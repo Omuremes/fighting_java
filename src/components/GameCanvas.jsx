@@ -151,7 +151,7 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       fall: { imageSrc: '/assets/player1/Sprites/Fall.png', frameCount: 2 },
       attack1: { imageSrc: '/assets/player1/Sprites/Attack1.png', frameCount: 4 },
       attack2: { imageSrc: '/assets/player1/Sprites/Attack2.png', frameCount: 4 },
-      getHit: { imageSrc: '/assets/player1/Sprites/Take hit.png', frameCount: 3 },
+      getHit: { imageSrc: '/assets/player1/Sprites/Take_hit.png', frameCount: 3 },
       death: { imageSrc: '/assets/player1/Sprites/Death.png', frameCount: 7 },
     };
 
@@ -164,7 +164,7 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       attack1: { imageSrc: '/assets/player2/Sprites/Attack1.png', frameCount: 4 },
       attack2: { imageSrc: '/assets/player2/Sprites/Attack2.png', frameCount: 4 },
       attack3: { imageSrc: '/assets/player2/Sprites/Attack3.png', frameCount: 5 },
-      getHit: { imageSrc: '/assets/player2/Sprites/Get Hit.png', frameCount: 3 },
+      getHit: { imageSrc: '/assets/player2/Sprites/Get_Hit.png', frameCount: 3 },
       death: { imageSrc: '/assets/player2/Sprites/Death.png', frameCount: 9 },
     };
 
@@ -802,6 +802,30 @@ const GameCanvas = ({ gameState, onPlayerAction }) => {
       window.removeEventListener('keyup', handleKeyUp);
     };
   }, [onPlayerAction]);
+
+  // Обновляем состояние игры когда получаем его из пропсов
+  useEffect(() => {
+    if (gameState) {
+      console.log("GameCanvas: получено обновление gameState:", gameState);
+      // Обновляем здоровье игроков из gameState
+      const p1Health = gameState.player1?.health || 100;
+      const p2Health = gameState.player2?.health || 100;
+      
+      console.log("GameCanvas: обновляем здоровье:", 
+        `P1: ${player1Health.current} -> ${p1Health}`, 
+        `P2: ${player2Health.current} -> ${p2Health}`);
+      
+      player1Health.current = p1Health;
+      player2Health.current = p2Health;
+      
+      // Обновляем количество побед
+      player1Wins.current = gameState.player1?.wins || 0;
+      player2Wins.current = gameState.player2?.wins || 0;
+      
+      // Обновляем номер раунда
+      round.current = gameState.round || 1;
+    }
+  }, [gameState]);
 
   return (
     <div className="w-screen h-screen m-0 p-0 bg-black flex items-center justify-center">

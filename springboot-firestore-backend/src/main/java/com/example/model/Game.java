@@ -52,6 +52,16 @@ public class Game {
         this.lastUpdated = System.currentTimeMillis();
     }
     
+    // Helper method to get player type (player1 or player2) from player ID
+    public String getPlayerId(String id) {
+        if (player1 != null && id.equals(player1.getId())) {
+            return "player1";
+        } else if (player2 != null && id.equals(player2.getId())) {
+            return "player2";
+        }
+        return null;
+    }
+
     // Getters and Setters
     public String getId() {
         return id;

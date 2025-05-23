@@ -16,11 +16,11 @@ public class Player {
     public Player() {
     }
     
-    public Player(String id, String name, int x, int y) {
+    public Player(String id, String name) {
         this.id = id;
         this.name = name;
-        this.x = x;
-        this.y = y;
+        this.x = 0;  // Will be set in GameService
+        this.y = 0;  // Will be set in GameService
     }
     
     // Getters and Setters
