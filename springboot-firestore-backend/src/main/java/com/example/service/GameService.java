@@ -131,25 +131,52 @@ public class GameService {
             player.setFacing("right");
             player.setCurrentAnimation("run");
         }
-    }
-
-    // 🥊 Attack logic
+    }    // 🥊 Attack logic
     private void handleAttackAction(Player attacker, Player defender, String attackType) {
         attacker.setAttacking(true);
         attacker.setCurrentAnimation(attackType);
 
-        // Для отладки
-        System.out.println("Attack! Attacker: " + attacker.getId() + ", Facing: " + attacker.getFacing() + 
-                          ", Position: " + attacker.getX() + ", Defender position: " + defender.getX());
-
-        // Упрощенная логика попадания - всегда наносим урон
-        int newHealth = Math.max(0, defender.getHealth() - ATTACK_DAMAGE);
-        System.out.println("Damage calculation: current health=" + defender.getHealth() + 
-                          ", damage=" + ATTACK_DAMAGE + ", new health=" + newHealth);
-        defender.setHealth(newHealth);
-        defender.setCurrentAnimation("getHit");
+        // Вычисляем урон в зависимости от типа атаки
+        int damage = ATTACK_DAMAGE;
+        if ("attack2".equals(attackType)) {
+            damage = ATTACK_DAMAGE + 5; // Усиленная атака
+        }
         
-        System.out.println("Defender health after hit: " + defender.getHealth());
+        // Проверяем расстояние между игроками для определения попадания
+        int attackerX = attacker.getX();
+        int defenderX = defender.getX();
+        int distance = Math.abs(attackerX - defenderX);
+        
+        // Дистанция атаки (половина ширины персонажа + небольшое расстояние)
+        int attackRange = PLAYER_WIDTH / 2 + 50;
+        
+        // Проверяем, что атакующий повернут в сторону защищающегося
+        boolean facingRight = "right".equals(attacker.getFacing());
+        boolean defenderIsRight = attackerX < defenderX;
+        
+        boolean canHit = distance <= attackRange && (facingRight == defenderIsRight);
+        
+        // Логгирование для отладки
+        System.out.println("Attack info - Attacker: " + attacker.getId() + 
+                           ", Facing: " + attacker.getFacing() + 
+                           ", Position: " + attackerX + 
+                           ", Defender position: " + defenderX + 
+                           ", Distance: " + distance + 
+                           ", Range: " + attackRange + 
+                           ", Can hit: " + canHit);
+        
+        // Если можем попасть, наносим урон
+        if (canHit || true) { // Убрать "|| true" когда захотите включить точный расчет попаданий
+            int newHealth = Math.max(0, defender.getHealth() - damage);
+            System.out.println("Damage calculation: current health=" + defender.getHealth() + 
+                              ", damage=" + damage + ", new health=" + newHealth);
+            defender.setHealth(newHealth);
+            defender.setCurrentAnimation("getHit");
+            
+            System.out.println("Defender health after hit: " + defender.getHealth());
+        } else {
+            System.out.println("Attack missed!");
+        }
     }
 
     // 💾 Save to Firestore and update cache
