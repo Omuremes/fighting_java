@@ -5,6 +5,19 @@ import { useSprites } from '../contexts/SpritesContext';
 const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharacter }) => {
   const { getCharacterSpritePath, getHitAnimationPath, checkSpriteExists, preloadAnimation } = useSprites();
   
+  // Character stats references
+  const player1Stats = useRef({
+    attack: playerCharacter?.stats?.attack || 5,
+    defense: playerCharacter?.stats?.defense || 5,
+    speed: playerCharacter?.stats?.speed || 5
+  });
+  
+  const player2Stats = useRef({
+    attack: opponentCharacter?.stats?.attack || 5,
+    defense: opponentCharacter?.stats?.defense || 5,
+    speed: opponentCharacter?.stats?.speed || 5
+  });
+  
   // Player refs and state management
   const canvasRef = useRef(null);
   const player1Ref = useRef(null);
@@ -19,13 +32,12 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
   const player1Attack = useRef({ inProgress: false, type: null, wasHit: false });
   const player2Attack = useRef({ inProgress: false, type: null, wasHit: false });
   const preloadedAnimations = useRef({});
-  
-  // Animation and UI state
+    // Animation and UI state
   const [showRoundText, setShowRoundText] = useState(true);
   const [roundTextOpacity, setRoundTextOpacity] = useState(1);
   const player1Wins = useRef(0);
   const player2Wins = useRef(0);
-  const speed = 8;
+  const baseSpeed = 5;
   const gravity = 0.10;
 
   // Initialize game settings
@@ -245,20 +257,49 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
 
       // Player 2
       ctx.fillRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      ctx.strokeRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-
-      // Health bars
+      ctx.strokeRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);      // Health bars
       ctx.fillStyle = '#e53935';
       const p1pixels = Math.round((player1Health.current / 100) * (barWidth / pixelSize));
       for (let i = 0; i < p1pixels; i++) {
         ctx.fillRect(barMargin + i * pixelSize, barMargin, pixelSize - 1, barHeight);
       }
+        // Add health number for player 1
+      ctx.font = 'bold 18px Arial';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(player1Health.current)}`, barMargin + barWidth / 2, barMargin + barHeight / 2 + 6);
+      
+      // Display player 1 stats
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#ff6b6b'; // Red for attack
+      ctx.fillText(`ATK:${player1Stats.current.attack}`, barMargin, barMargin + barHeight + 20);
+      ctx.fillStyle = '#4dabf7'; // Blue for defense
+      ctx.fillText(`DEF:${player1Stats.current.defense}`, barMargin + 60, barMargin + barHeight + 20);
+      ctx.fillStyle = '#69db7c'; // Green for speed
+      ctx.fillText(`SPD:${player1Stats.current.speed}`, barMargin + 120, barMargin + barHeight + 20);
 
       ctx.fillStyle = '#43a047';
       const p2pixels = Math.round((player2Health.current / 100) * (barWidth / pixelSize));
       for (let i = 0; i < p2pixels; i++) {
         ctx.fillRect(canvasWidth - barMargin - (i + 1) * pixelSize, barMargin, pixelSize - 1, barHeight);
       }
+      
+      // Add health number for player 2
+      ctx.font = 'bold 18px Arial';
+      ctx.fillStyle = '#ffffff';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(player2Health.current)}`, canvasWidth - barMargin - barWidth / 2, barMargin + barHeight / 2 + 6);
+      
+      // Display player 2 stats
+      ctx.font = 'bold 12px Arial';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#ff6b6b'; // Red for attack
+      ctx.fillText(`ATK:${player2Stats.current.attack}`, canvasWidth - barMargin, barMargin + barHeight + 20);
+      ctx.fillStyle = '#4dabf7'; // Blue for defense
+      ctx.fillText(`DEF:${player2Stats.current.defense}`, canvasWidth - barMargin - 60, barMargin + barHeight + 20);
+      ctx.fillStyle = '#69db7c'; // Green for speed
+      ctx.fillText(`SPD:${player2Stats.current.speed}`, canvasWidth - barMargin - 120, barMargin + barHeight + 20);
 
       // Win markers
       for (let i = 0; i < player1Wins.current; i++) {
@@ -297,10 +338,9 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       }
 
       ctx.restore();
-    };
-
-    // Combat system
-    const ATTACK_DAMAGE = 10;
+    };    // Combat system
+    // Base damage will be modified by attack and defense stats
+    const BASE_ATTACK_DAMAGE = 7;
 
     function getHitbox(player, width = 40, height = 120) {
       const offset = 150;
@@ -319,19 +359,36 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
         width,
         height
       };
-    }
-
-    function isColliding(boxA, boxB) {
+    }    function isColliding(boxA, boxB) {
       return (
         boxA.x < boxB.x + boxB.width &&
         boxA.x + boxA.width > boxB.x &&
         boxA.y < boxB.y + boxB.height &&
         boxA.y + boxA.height > boxB.y
       );
-    }    function checkAttackHit(attacker, defender, damage) {
+    }
+    
+    // Calculate damage based on attacker's attack and defender's defense stats
+    function calculateDamage(attackerStats, defenderStats) {
+      const attackPower = attackerStats.attack;
+      const defensePower = defenderStats.defense;
+      
+      // Formula: Base damage + (attack stat - defense stat/2)
+      // This ensures defense reduces damage but doesn't nullify it entirely
+      let damage = BASE_ATTACK_DAMAGE + (attackPower - defensePower/2);
+      
+      // Ensure minimum damage is at least 5
+      damage = Math.max(5, damage);
+      
+      // Add slight randomness (-1 to +1)
+      damage += (Math.random() * 2) - 1;
+      
+      return Math.round(damage);
+    }
+    
+    function checkAttackHit(attacker, defender, baseDamage) {
       const hitbox = getHitbox(attacker);
-      const targetBox = getBodyBox(defender);
-      if (isColliding(hitbox, targetBox)) {
+      const targetBox = getBodyBox(defender);      if (isColliding(hitbox, targetBox)) {
         // Only switch to hit animation if we're not dead
         if (defender.currentAnimation !== 'death') {
           // If already in hit animation, reset it to start from beginning
@@ -350,9 +407,14 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
           }
         }
         
+        // Calculate damage based on attacker and defender stats
+        const attackerStats = attacker === player1Ref.current ? player1Stats.current : player2Stats.current;
+        const defenderStats = defender === player1Ref.current ? player1Stats.current : player2Stats.current;
+        const calculatedDamage = calculateDamage(attackerStats, defenderStats);
+        
         handleGameEvent('damage', {
           target: defender === player1Ref.current ? 'player1' : 'player2',
-          amount: damage
+          amount: calculatedDamage
         });
         return true;
       }
@@ -410,13 +472,14 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
           player2Ref.current.switchAnimation('idle');
         }
       }
-      player2Ref.current.setVelocityY(player2Velocity.current.y);
-
-      // Движение по горизонтали
-      if (keys.player1.left) player1Pos.current.x = Math.max(0, player1Pos.current.x - speed);
-      if (keys.player1.right) player1Pos.current.x = Math.min(canvasWidth - player1Width, player1Pos.current.x + speed);
-      if (keys.player2.left) player2Pos.current.x = Math.max(0, player2Pos.current.x - speed);
-      if (keys.player2.right) player2Pos.current.x = Math.min(canvasWidth - player2Width, player2Pos.current.x + speed);
+      player2Ref.current.setVelocityY(player2Velocity.current.y);      // Движение по горизонтали с учетом скорости персонажа
+      const player1MoveSpeed = baseSpeed + (player1Stats.current.speed * 0.5);
+      const player2MoveSpeed = baseSpeed + (player2Stats.current.speed * 0.5);
+      
+      if (keys.player1.left) player1Pos.current.x = Math.max(0, player1Pos.current.x - player1MoveSpeed);
+      if (keys.player1.right) player1Pos.current.x = Math.min(canvasWidth - player1Width, player1Pos.current.x + player1MoveSpeed);
+      if (keys.player2.left) player2Pos.current.x = Math.max(0, player2Pos.current.x - player2MoveSpeed);
+      if (keys.player2.right) player2Pos.current.x = Math.min(canvasWidth - player2Width, player2Pos.current.x + player2MoveSpeed);
 
       // Обновление позиций и анимаций
       player1Ref.current.position = player1Pos.current;
@@ -767,23 +830,21 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
         player1Ref.current.switchAnimation('run');
         player1Ref.current.setFacing('left');
         onPlayerAction?.({ type: 'move', player: 'player1', direction: 'left' });
-      }
-      if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
-        player1Velocity.current.y = -8;
+      }      if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
+        // Jump height based on speed stat
+        player1Velocity.current.y = -7 - (player1Stats.current.speed * 0.2);
         player1Ref.current.switchAnimation('jump');
         onPlayerAction?.({ type: 'jump', player: 'player1' });
-      }
-      if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
+      }      if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack1');
         player1Attack.current = { inProgress: true, type: 'attack1' };
-        if (checkAttackHit(player1Ref.current, player2Ref.current, ATTACK_DAMAGE)) {
+        if (checkAttackHit(player1Ref.current, player2Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack1', hit: true });
         }
-      }
-      if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
+      }      if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack2');
         player1Attack.current = { inProgress: true, type: 'attack2' };
-        if (checkAttackHit(player1Ref.current, player2Ref.current, ATTACK_DAMAGE)) {
+        if (checkAttackHit(player1Ref.current, player2Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack2', hit: true });
         }
       }
@@ -800,23 +861,21 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
         player2Ref.current.switchAnimation('run');
         player2Ref.current.setFacing('right');
         onPlayerAction?.({ type: 'move', player: 'player2', direction: 'right' });
-      }
-      if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
-        player2Velocity.current.y = -8;
+      }      if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
+        // Jump height based on speed stat
+        player2Velocity.current.y = -7 - (player2Stats.current.speed * 0.2);
         player2Ref.current.switchAnimation('jump');
         onPlayerAction?.({ type: 'jump', player: 'player2' });
-      }
-      if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
+      }      if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack1');
         player2Attack.current = { inProgress: true, type: 'attack1' };
-        if (checkAttackHit(player2Ref.current, player1Ref.current, ATTACK_DAMAGE)) {
+        if (checkAttackHit(player2Ref.current, player1Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack1', hit: true });
         }
-      }
-      if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
+      }      if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack2');
         player2Attack.current = { inProgress: true, type: 'attack2' };
-        if (checkAttackHit(player2Ref.current, player1Ref.current, ATTACK_DAMAGE)) {
+        if (checkAttackHit(player2Ref.current, player1Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack2', hit: true });
         }
       }
