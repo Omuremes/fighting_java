@@ -37,6 +37,8 @@ springboot-firestore-backend
    - Create a Firebase project in the Firebase console.
    - Generate a new service account key and download the JSON file.
    - Place the downloaded JSON file in the `src/main/resources` directory and rename it to `firebase-service-account.json`.
+   - This file is git-ignored for security. A template file `firebase-service-account-template.json` is provided as a reference.
+   - **IMPORTANT:** Never commit your actual Firebase credentials to Git.
 
 3. **Update application.properties:**
    - Configure your Firestore settings and any other necessary properties in `src/main/resources/application.properties`.

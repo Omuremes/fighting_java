@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import CharacterSelect from '../components/CharacterSelect';
 
 const Menu = () => {
   const { currentUser, logout } = useAuth();
@@ -8,6 +9,12 @@ const Menu = () => {
   const [gameMode, setGameMode] = useState(null);
   const [roomCode, setRoomCode] = useState('');
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [showCharacterSelect, setShowCharacterSelect] = useState(false);
+  const [selectedCharacter, setSelectedCharacter] = useState(null);
+  const [pendingGameMode, setPendingGameMode] = useState(null);
+  const [selectingPlayerNumber, setSelectingPlayerNumber] = useState(1); // Какой игрок выбирает персонажа (1 или 2)
+  const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого игрока
+  const [player2Character, setPlayer2Character] = useState(null); // Персонаж второго игрока
 
   useEffect(() => {
     // Проверяем авторизацию
@@ -15,26 +22,72 @@ const Menu = () => {
       navigate('/login');
     }
   }, [currentUser, navigate]);
-
   const handleStartSinglePlayer = () => {
-    // Начать игру против компьютера
-    navigate('/game/single-player');
+    // Показываем выбор персонажа перед началом игры
+    setPendingGameMode('single-player');
+    setShowCharacterSelect(true);
   };
 
   const handleStartTwoPlayers = () => {
-    // Начать игру для двух игроков на одном устройстве
-    navigate('/game/two-players');
+    // Показываем выбор персонажа перед началом игры
+    setPendingGameMode('two-players');
+    setShowCharacterSelect(true);
+  };    const handleCharacterSelect = (character) => {
+    if (pendingGameMode === 'two-players') {
+      // Для двух игроков на одном устройстве
+      if (selectingPlayerNumber === 1) {
+        // Сохраняем выбор первого игрока и переходим к выбору второго
+        const firstPlayer = {
+          ...character,
+          spritePath: `/assets/${character.id}/Sprites/`
+        };
+        setPlayer1Character(firstPlayer);
+        setSelectingPlayerNumber(2);
+        return; // Не закрываем окно выбора, продолжаем для второго игрока
+      } else {
+        // Сохраняем выбор второго игрока
+        const secondPlayer = {
+          ...character,
+          spritePath: `/assets/${character.id}/Sprites/`
+        };
+        setPlayer2Character(secondPlayer);
+        setSelectingPlayerNumber(1); // Сбрасываем для следующего раза
+        setShowCharacterSelect(false);
+        
+        // Переходим к игре с выбранными персонажами для обоих игроков
+        navigate('/game/two-players', { 
+          state: { 
+            player1Character: player1Character,
+            player2Character: secondPlayer 
+          } 
+        });
+        return;
+      }
+    }
+    
+    // Для других режимов (одиночной игры или онлайн)
+    setSelectedCharacter(character);
+    setShowCharacterSelect(false);
+    
+    // Переходим к игре с выбранным персонажем
+    if (pendingGameMode === 'single-player') {
+      navigate('/game/single-player', { state: { character } });
+    } else if (pendingGameMode === 'online') {
+      // Для онлайн режима создаем комнату с информацией о выбранном персонаже
+      const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      navigate(`/game/online/host/${newRoomCode}`, { state: { character } });
+    }
   };
-
   const handleCreateRoom = () => {
-    // Генерируем случайный код комнаты
-    const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-    navigate(`/game/online/host/${newRoomCode}`);
+    // Показываем выбор персонажа перед созданием комнаты
+    setPendingGameMode('online');
+    setShowCharacterSelect(true);
   };
-
   const handleJoinRoom = () => {
     if (roomCode) {
-      navigate(`/game/online/join/${roomCode}`);
+      // Показываем выбор персонажа перед присоединением к комнате
+      setPendingGameMode('join-room');
+      setShowCharacterSelect(true);
     }
   };
 
@@ -180,7 +233,6 @@ const Menu = () => {
     
     return null;
   };
-
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
       <header className="bg-gray-800 py-4 px-6 flex justify-between items-center">
@@ -205,10 +257,33 @@ const Menu = () => {
         </div>
       </header>
       
-      <main className="flex-1 container mx-auto max-w-3xl py-12 px-6 text-center">
-        <h1 className="text-4xl font-extrabold mb-6">Выберите режим игры</h1>
-        
-        {gameMode ? renderGameOptions() : renderGameModeSelection()}
+      <main className="flex-1 container mx-auto max-w-3xl py-12 px-6 text-center">        {showCharacterSelect ? (
+          <>
+            {pendingGameMode === 'two-players' && (
+              <div className="bg-gray-700 p-3 rounded-lg mb-4 flex justify-between items-center">
+                <div className={`flex items-center ${selectingPlayerNumber === 1 ? 'text-blue-400 font-bold' : 'text-gray-400'}`}>
+                  <span className="bg-blue-600 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2">1</span>
+                  <span>Игрок 1 {player1Character ? `(${player1Character.name})` : ''}</span>
+                </div>
+                <div className="mx-2 text-gray-400">→</div>
+                <div className={`flex items-center ${selectingPlayerNumber === 2 ? 'text-green-400 font-bold' : 'text-gray-400'}`}>
+                  <span className="bg-green-600 text-white rounded-full w-6 h-6 flex items-center justify-center mr-2">2</span>
+                  <span>Игрок 2 {player2Character ? `(${player2Character.name})` : ''}</span>
+                </div>
+              </div>
+            )}
+            <CharacterSelect 
+              onSelectCharacter={handleCharacterSelect}
+              onCancel={() => setShowCharacterSelect(false)}
+              playerNumber={pendingGameMode === 'two-players' ? selectingPlayerNumber : null}
+            />
+          </>
+        ) : (
+          <>
+            <h1 className="text-4xl font-extrabold mb-6">Выберите режим игры</h1>
+            {gameMode ? renderGameOptions() : renderGameModeSelection()}
+          </>
+        )}
       </main>
       
       <footer className="bg-gray-800 py-4 px-6 text-center text-gray-400">

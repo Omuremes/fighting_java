@@ -15,6 +15,7 @@ import {
   getDoc 
 } from 'firebase/firestore';
 import { getAnalytics } from "firebase/analytics";
+import { getStorage, ref, getDownloadURL, listAll } from 'firebase/storage';
 
 // Инициализация Firebase
 const firebaseConfig = {
@@ -31,6 +32,7 @@ const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
+const storage = getStorage(app);
 
 // Контекст для аутентификации
 const AuthContext = createContext();
@@ -119,7 +121,78 @@ export function AuthProvider({ children }) {
     });
 
     return unsubscribe;
-  }, []);
+  }, []);  // Получение списка персонажей из Firebase Storage
+  async function getCharacters() {
+    try {
+      const characters = [];        // Информация о персонажах
+      const characterInfo = {
+        'character1': {
+          name: 'Самурай',
+          description: 'Опытный воин с мечом',
+          stats: {
+            attack: 8,
+            defense: 7,
+            speed: 5
+          }
+        },
+        'character2': {
+          name: 'Рыцарь',
+          description: 'Рыцарь с тяжелыми доспехами',
+          stats: {
+            attack: 7,
+            defense: 4,
+            speed: 9
+          }
+        },
+        'character3': {
+          name: 'Ниндзя',
+          description: 'Быстрый и смертоносный воин тени',
+          stats: {
+            attack: 9,
+            defense: 5,
+            speed: 10
+          }
+        },
+        'character4': {
+          name: 'Маг',
+          description: 'Владеет мощной магией стихий',
+          stats: {
+            attack: 10,
+            defense: 3,
+            speed: 6
+          }
+        }
+      };
+      
+      // Получаем список директорий с персонажами
+      const characterDirs = Object.keys(characterInfo);
+      
+      for (const dir of characterDirs) {
+        const storageRef = ref(storage, dir);
+        const idleImageRef = ref(storage, `${dir}/Idle.png`);
+          try {
+          const imageUrl = await getDownloadURL(idleImageRef);
+          // Для превью персонажа в меню используем URL из Firebase Storage
+          // Для персонажа в игре это URL не будет использоваться, 
+          // вместо этого будут использоваться локальные пути
+          characters.push({
+            id: dir,
+            name: characterInfo[dir].name,
+            description: characterInfo[dir].description,
+            stats: characterInfo[dir].stats,
+            imageUrl: imageUrl
+          });
+        } catch (error) {
+          console.error(`Ошибка при загрузке изображения для ${dir}:`, error);
+        }
+      }
+      
+      return characters;
+    } catch (error) {
+      console.error('Ошибка при получении списка персонажей:', error);
+      return [];
+    }
+  }
 
   const value = {
     currentUser,
@@ -128,7 +201,8 @@ export function AuthProvider({ children }) {
     logout,
     getUserData,
     updateUserData,
-    updateRating
+    updateRating,
+    getCharacters
   };
 
   return (
