@@ -13,6 +13,16 @@ export function SpritesProvider({ children }) {
     return `/assets/${baseFolder}/Sprites/`;
   };
 
+  // Get the correct hit animation filename for the character
+  const getHitAnimationPath = (character, basePath) => {
+    if (!character || !character.name) {
+      return `${basePath}Take_hit.png`; // Default to player1 format
+    }
+    
+    const isKnight = character.name === 'Рыцарь';
+    return isKnight ? `${basePath}Get_Hit.png` : `${basePath}Take_hit.png`;
+  };
+
   const checkSpriteExists = async (path) => {
     return new Promise((resolve) => {
       const img = new Image();
@@ -38,6 +48,7 @@ export function SpritesProvider({ children }) {
   };
   const value = {
     getCharacterSpritePath,
+    getHitAnimationPath,
     checkSpriteExists,
     preloadAnimation
   };

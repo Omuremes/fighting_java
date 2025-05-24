@@ -3,7 +3,7 @@ import Player from '../classes/Player';
 import { useSprites } from '../contexts/SpritesContext';
 
 const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharacter }) => {
-  const { getCharacterSpritePath, checkSpriteExists, preloadAnimation } = useSprites();
+  const { getCharacterSpritePath, getHitAnimationPath, checkSpriteExists, preloadAnimation } = useSprites();
   
   // Player refs and state management
   const canvasRef = useRef(null);
@@ -131,7 +131,7 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       fall: { imageSrc: `${player1BasePath}Fall.png`, frameCount: getFrameCount(player1BasePath, 'fall', playerCharacter.name) },
       attack1: { imageSrc: `${player1BasePath}Attack1.png`, frameCount: getFrameCount(player1BasePath, 'attack1', playerCharacter.name) },
       attack2: { imageSrc: `${player1BasePath}Attack2.png`, frameCount: getFrameCount(player1BasePath, 'attack2', playerCharacter.name) },
-      getHit: { imageSrc: `${player1BasePath}Take_hit.png`, frameCount: getFrameCount(player1BasePath, 'getHit', playerCharacter.name) },
+      getHit: { imageSrc: getHitAnimationPath(playerCharacter, player1BasePath), frameCount: getFrameCount(player1BasePath, 'getHit', playerCharacter.name) },
       death: { imageSrc: `${player1BasePath}Death.png`, frameCount: getFrameCount(player1BasePath, 'death', playerCharacter.name) }
     };    const player2Animations = {
       idle: { imageSrc: `${player2BasePath}Idle.png`, frameCount: getFrameCount(player2BasePath, 'idle', opponentCharacter.name) },
@@ -141,7 +141,7 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       attack1: { imageSrc: `${player2BasePath}Attack1.png`, frameCount: getFrameCount(player2BasePath, 'attack1', opponentCharacter.name) },
       attack2: { imageSrc: `${player2BasePath}Attack2.png`, frameCount: getFrameCount(player2BasePath, 'attack2', opponentCharacter.name) },
       attack3: { imageSrc: `${player2BasePath}Attack3.png`, frameCount: getFrameCount(player2BasePath, 'attack3', opponentCharacter.name) },
-      getHit: { imageSrc: `${player2BasePath}Get_Hit.png`, frameCount: getFrameCount(player2BasePath, 'getHit', opponentCharacter.name) },
+      getHit: { imageSrc: getHitAnimationPath(opponentCharacter, player2BasePath), frameCount: getFrameCount(player2BasePath, 'getHit', opponentCharacter.name) },
       death: { imageSrc: `${player2BasePath}Death.png`, frameCount: getFrameCount(player2BasePath, 'death', opponentCharacter.name) }
     };
 
@@ -157,13 +157,12 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
           console.error('Sprites not found');
           return;
         }
-        
-        // Preload critical animations, especially death
+          // Preload critical animations, especially death
         const preloadResults = await Promise.all([
           preloadAnimation(`${player1BasePath}Death.png`, 'player1-death'),
           preloadAnimation(`${player2BasePath}Death.png`, 'player2-death'),
-          preloadAnimation(`${player1BasePath}Take_hit.png`, 'player1-hit'),
-          preloadAnimation(`${player2BasePath}Get_Hit.png`, 'player2-hit')
+          preloadAnimation(getHitAnimationPath(playerCharacter, player1BasePath), 'player1-hit'),
+          preloadAnimation(getHitAnimationPath(opponentCharacter, player2BasePath), 'player2-hit')
         ]);
         
         // Store preload results

@@ -1,13 +1,21 @@
 export default class Player {  constructor({ ctx, imageSrc, position, frameCount, width, height, animationSpeed = 0.1 }) {
     this.ctx = ctx;
     this.image = new Image();
-    this.image.src = imageSrc;
+    this.imageLoaded = false;
+    this.imageError = false;
+    
     this.image.onerror = () => {
       console.error("Error loading image:", imageSrc);
+      this.imageError = true;
     };
     this.image.onload = () => {
       console.log("Image loaded successfully:", imageSrc);
+      this.imageLoaded = true;
     };
+    
+    // Start loading the image
+    this.image.src = imageSrc;
+    
     this.position = { ...position };
     this.width = width;
     this.height = height;
@@ -17,11 +25,16 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     this.animationSpeed = animationSpeed;
     this.facing = 'right';
     this.velocityY = 0;
-    this.onGround = true;    this.currentAnimation = 'idle';
+    this.onGround = true;    
+    this.currentAnimation = 'idle';
     this.animations = {};
     this.locked = false;
     this.animationEnded = false;
     this.deathAnimationCompleted = false;
+    
+    // For error recovery
+    this.loadRetries = 0;
+    this.maxRetries = 2;
   }
   setAnimations(animations) {
     this.animations = animations;
@@ -89,33 +102,42 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
       } else {
         this.animationEnded = true;
       }
-    }
-
-    // Draw the character
-    if (this.image.complete) {
-      const frameWidth = this.image.width / this.frameCount;
-      const frameHeight = this.image.height;
-      
-      this.ctx.save();
-      if (this.facing === 'left') {
-        this.ctx.translate(this.position.x + this.width, this.position.y);
-        this.ctx.scale(-1, 1);
-      } else {
-        this.ctx.translate(this.position.x, this.position.y);
+    }    // Draw the character
+    if (this.image.complete && this.image.naturalWidth !== 0) {
+      try {
+        const frameWidth = this.image.width / this.frameCount;
+        const frameHeight = this.image.height;
+        
+        this.ctx.save();
+        if (this.facing === 'left') {
+          this.ctx.translate(this.position.x + this.width, this.position.y);
+          this.ctx.scale(-1, 1);
+        } else {
+          this.ctx.translate(this.position.x, this.position.y);
+        }
+        
+        this.ctx.drawImage(
+          this.image,
+          this.currentFrame * frameWidth,
+          0,
+          frameWidth,
+          frameHeight,
+          0,
+          0,
+          this.width,
+          this.height
+        );
+        this.ctx.restore();
+      } catch (error) {
+        console.error("Error drawing image:", error.message);
+        console.error("Image details:", {
+          src: this.image.src,
+          width: this.image.width,
+          height: this.image.height,
+          frame: this.currentFrame,
+          frameCount: this.frameCount
+        });
       }
-      
-      this.ctx.drawImage(
-        this.image,
-        this.currentFrame * frameWidth,
-        0,
-        frameWidth,
-        frameHeight,
-        0,
-        0,
-        this.width,
-        this.height
-      );
-      this.ctx.restore();
     }
   }  switchAnimation(animationType) {
     // Check if the animation exists and if the player is not locked
@@ -157,14 +179,27 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
       console.log(`Switching to death animation, frameCount: ${this.animations[animationType].frameCount}`);
     }
     
+    // Reset image loading state flags
+    this.imageLoaded = false;
+    this.imageError = false;
+    
     // Switch to the new animation
     this.currentAnimation = animationType;
-    this.image.src = this.animations[animationType].imageSrc;
+    
+    // Get the image path from animations
+    const newImageSrc = this.animations[animationType].imageSrc;
+    
+    // Only change the image source if it's different to avoid unnecessary reloading
+    if (this.image.src !== newImageSrc) {
+      console.log(`Loading animation: ${animationType} from ${newImageSrc}`);
+      this.image.src = newImageSrc;
+    }
+    
     this.frameCount = this.animations[animationType].frameCount;
     this.currentFrame = 0;
     this.framesElapsed = 0;
     this.animationEnded = false;
-  }  lockAnimation(animationType) {
+  }lockAnimation(animationType) {
     this.locked = true;
     
     // Special handling for death animation
