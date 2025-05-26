@@ -6,19 +6,70 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
   const [characters, setCharacters] = useState([]);
   const [selectedCharacterId, setSelectedCharacterId] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [spriteErrors, setSpriteErrors] = useState({});
   const { getCharacters } = useAuth();
-  const { checkSpriteExists } = useSprites();
+  const { checkSpriteExists, getCharacterSpritePath, debugSpritePaths } = useSprites();
   
-  useEffect(() => {
+  // Function to verify a character's sprites
+  const verifyCharacterSprites = async (character) => {
+    if (!character || !character.id) {
+      return false;
+    }
+    
+    // Get the correct path based on character ID/name
+    const spritePath = getCharacterSpritePath(character);
+    
+    // Use the debug function to log detailed information
+    debugSpritePaths(character);
+    
+    // Critical animations to check
+    const animations = ['Idle', 'Attack1', 'Run'];
+    const results = {};
+    
+    console.log(`Verifying animations for ${character.name}...`);
+    
+    for (const anim of animations) {
+      const img = new Image();
+      const imgPath = `${spritePath}${anim}.png`;
+      
+      const loadResult = await new Promise(resolve => {
+        img.onload = () => {
+          console.log(`✅ ${character.name} - ${anim} loaded successfully`);
+          resolve(true);
+        };
+        img.onerror = () => {
+          console.error(`❌ ${character.name} - ${anim} failed to load from ${imgPath}`);
+          resolve(false);
+        };
+        img.src = imgPath;
+      });
+      
+      results[anim] = loadResult;
+    }
+    
+    const allSuccessful = Object.values(results).every(r => r === true);
+    
+    if (!allSuccessful) {
+      setSpriteErrors(prev => ({
+        ...prev,
+        [character.id]: results
+      }));
+    }
+    
+    return allSuccessful;
+  };
+    useEffect(() => {
     const loadCharacters = async () => {
       try {
         setLoading(true);
         const charactersList = await getCharacters();
         
-        // Проверяем наличие спрайтов для каждого персонажа
+        // Проверяем наличие спрайтов для каждого персонажа, используя правильные пути
         const charactersWithValidation = await Promise.all(
           charactersList.map(async (char) => {
-            const spritePath = `/assets/${char.id}/Sprites/`;
+            // Use the SpritesContext function to get the correct path
+            const spritePath = getCharacterSpritePath(char);
+            console.log(`Checking sprites for ${char.name} (${char.id}) at path: ${spritePath}`);
             const hasSprites = await checkSpriteExists(spritePath);
             return {
               ...char,
@@ -33,6 +84,7 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
         // По умолчанию выбираем первого персонажа с доступными спрайтами
         const firstValidCharacter = charactersWithValidation.find(char => char.hasSprites);
         if (firstValidCharacter) {
+          console.log(`Auto-selecting character: ${firstValidCharacter.name} (${firstValidCharacter.id})`);
           setSelectedCharacterId(firstValidCharacter.id);
         }
       } catch (error) {
@@ -43,14 +95,25 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
     };
     
     loadCharacters();
-  }, [getCharacters, checkSpriteExists]);
-  
-  const handleSelect = () => {
+  }, [getCharacters, checkSpriteExists, getCharacterSpritePath]);
+  const handleSelect = async () => {
     const selectedCharacter = characters.find(char => char.id === selectedCharacterId);
     if (selectedCharacter) {
+      // Use the SpritesContext function for path consistency
+      const spritePath = getCharacterSpritePath(selectedCharacter);
+      console.log(`Selected character ${selectedCharacter.name} with path: ${spritePath}`);
+      
+      // Verify the character sprites before proceeding
+      const isValid = await verifyCharacterSprites(selectedCharacter);
+      
+      if (!isValid) {
+        console.warn(`Character ${selectedCharacter.name} has some sprite loading issues. Continuing anyway with fallbacks.`);
+      }
+      
       onSelectCharacter({
         ...selectedCharacter,
-        spritePath: `/assets/${selectedCharacter.id}/Sprites/`
+        spritePath: spritePath,
+        spritesVerified: isValid
       });
     }
   };

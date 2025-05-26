@@ -46,14 +46,26 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
     if (!canvas || !playerCharacter || !opponentCharacter) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;    // Добавляем функцию для определения количества кадров
+    if (!ctx) return;    
+
     // Function to determine frame counts for animations
-    const getFrameCount = (characterPath, animationType, characterName) => {
-      const isKnight = characterName && characterName === 'Рыцарь';
+    const getFrameCount = (characterPath, animationType, characterName, characterId) => {
+      if (!characterName) {
+        console.warn('getFrameCount called without characterName', { characterPath, animationType });
+        return 4; // Default fallback
+      }
+      
+      // Check by both name and ID to ensure correct character detection
+      const isKnight = characterName === 'Рыцарь';
+      const isEvilWizard = characterName === 'Злой Волшебник' || characterId === 'player3';
+      
       console.log('getFrameCount:', {
         characterName,
+        characterId,
         animationType,
-        isKnight
+        isKnight,
+        isEvilWizard,
+        path: characterPath
       });
       
       const frameCountMap = {
@@ -77,12 +89,44 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
           attack2: 4,
           getHit: 3,
           death: 7
+        },
+        evilWizard: {
+          idle: 8,
+          run: 8,
+          jump: 2,
+          fall: 2,
+          attack1: 8,
+          attack2: 8,
+          getHit: 3,
+          death: 7
         }
       };
-      return isKnight ? frameCountMap.knight[animationType] : frameCountMap.samurai[animationType];
+    if (isEvilWizard) {
+        console.log(`Using Evil Wizard frame count for ${animationType}`);
+        const frameCount = frameCountMap.evilWizard[animationType];
+        if (frameCount === undefined) {
+          console.warn(`No frame count defined for Evil Wizard animation "${animationType}"`);
+          return 4; // Default fallback
+        }
+        return frameCount;
+      } else if (isKnight) {
+        const frameCount = frameCountMap.knight[animationType];
+        if (frameCount === undefined) {
+          console.warn(`No frame count defined for Knight animation "${animationType}"`);
+          return 4; // Default fallback
+        }
+        return frameCount;
+      } else {
+        const frameCount = frameCountMap.samurai[animationType];
+        if (frameCount === undefined) {
+          console.warn(`No frame count defined for Samurai animation "${animationType}"`);
+          return 4; // Default fallback
+        }
+        return frameCount;
+      }
     };
 
-    // Set up canvas
+  // Set up canvas
     const resizeCanvas = () => {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -92,22 +136,67 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
 
     // Load background
     const background = new Image();
-    background.src = '/assets/2DBackground_22.png';    // Get sprite paths for both players
+    background.src = '/assets/2DBackground_22.png';
+      // Get sprite paths for both players
     const player1BasePath = getCharacterSpritePath(playerCharacter);
     const player2BasePath = getCharacterSpritePath(opponentCharacter);
     
+    // Comprehensive character info logging for debugging
     console.log('Character info:', {
       player1: {
         name: playerCharacter.name,
+        id: playerCharacter.id,
         path: player1BasePath,
-        isKnight: player1BasePath.includes('player2')
+        isKnight: playerCharacter.name === 'Рыцарь',
+        isEvilWizard: playerCharacter.name === 'Злой Волшебник' || playerCharacter.id === 'player3',
       },
       player2: {
         name: opponentCharacter.name,
+        id: opponentCharacter.id,
         path: player2BasePath,
-        isKnight: player2BasePath.includes('player2')
+        isKnight: opponentCharacter.name === 'Рыцарь',
+        isEvilWizard: opponentCharacter.name === 'Злой Волшебник' || opponentCharacter.id === 'player3',
       }
     });
+      // Verify file paths directly
+    const testIdle1 = new Image();
+    const testIdle2 = new Image();
+    testIdle1.src = `${player1BasePath}Idle.png`;
+    testIdle2.src = `${player2BasePath}Idle.png`;
+    
+    testIdle1.onload = () => console.log(`✅ Successfully loaded Player 1 Idle: ${testIdle1.src}`);
+    testIdle1.onerror = () => console.error(`❌ Failed to load Player 1 Idle: ${testIdle1.src}`);
+    testIdle2.onload = () => console.log(`✅ Successfully loaded Player 2 Idle: ${testIdle2.src}`);
+    testIdle2.onerror = () => console.error(`❌ Failed to load Player 2 Idle: ${testIdle2.src}`);    // Additional verification for Evil Wizard character
+    if (playerCharacter.id === 'player3') {
+      // Test hit animation loading
+      const evilWizardHitTest = new Image();
+      // Properly encode the URL to handle spaces in filenames
+      evilWizardHitTest.src = `${player1BasePath}${encodeURIComponent('Take hit.png')}`;
+      evilWizardHitTest.onload = () => console.log(`✅ Successfully loaded Evil Wizard Hit: ${evilWizardHitTest.src}`);
+      evilWizardHitTest.onerror = () => console.error(`❌ Failed to load Evil Wizard Hit: ${evilWizardHitTest.src}`);
+      
+      // Test death animation loading
+      const evilWizardDeathTest = new Image();
+      evilWizardDeathTest.src = `${player1BasePath}${encodeURIComponent('Death.png')}`;
+      evilWizardDeathTest.onload = () => console.log(`✅ Successfully loaded Evil Wizard Death: ${evilWizardDeathTest.src}`);
+      evilWizardDeathTest.onerror = () => console.error(`❌ Failed to load Evil Wizard Death: ${evilWizardDeathTest.src}`);
+    }
+    
+    if (opponentCharacter.id === 'player3') {
+      // Test hit animation loading
+      const evilWizardHitTest = new Image();
+      // Properly encode the URL to handle spaces in filenames
+      evilWizardHitTest.src = `${player2BasePath}${encodeURIComponent('Take hit.png')}`;
+      evilWizardHitTest.onload = () => console.log(`✅ Successfully loaded Evil Wizard Hit: ${evilWizardHitTest.src}`);
+      evilWizardHitTest.onerror = () => console.error(`❌ Failed to load Evil Wizard Hit: ${evilWizardHitTest.src}`);
+      
+      // Test death animation loading
+      const evilWizardDeathTest = new Image();
+      evilWizardDeathTest.src = `${player2BasePath}${encodeURIComponent('Death.png')}`;
+      evilWizardDeathTest.onload = () => console.log(`✅ Successfully loaded Evil Wizard Death: ${evilWizardDeathTest.src}`);
+      evilWizardDeathTest.onerror = () => console.error(`❌ Failed to load Evil Wizard Death: ${evilWizardDeathTest.src}`);
+    }
 
     // Canvas dimensions and player positions
     const canvasWidth = window.innerWidth;
@@ -134,45 +223,206 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
     // Initialize velocities
     player1Velocity.current = { x: 0, y: 0 };
     player2Velocity.current = { x: 0, y: 0 };
-    
-    // Animation configurations
+      // Animation configurations
     const player1Animations = {
-      idle: { imageSrc: `${player1BasePath}Idle.png`, frameCount: getFrameCount(player1BasePath, 'idle', playerCharacter.name) },
-      run: { imageSrc: `${player1BasePath}Run.png`, frameCount: getFrameCount(player1BasePath, 'run', playerCharacter.name) },
-      jump: { imageSrc: `${player1BasePath}Jump.png`, frameCount: getFrameCount(player1BasePath, 'jump', playerCharacter.name) },
-      fall: { imageSrc: `${player1BasePath}Fall.png`, frameCount: getFrameCount(player1BasePath, 'fall', playerCharacter.name) },
-      attack1: { imageSrc: `${player1BasePath}Attack1.png`, frameCount: getFrameCount(player1BasePath, 'attack1', playerCharacter.name) },
-      attack2: { imageSrc: `${player1BasePath}Attack2.png`, frameCount: getFrameCount(player1BasePath, 'attack2', playerCharacter.name) },
-      getHit: { imageSrc: getHitAnimationPath(playerCharacter, player1BasePath), frameCount: getFrameCount(player1BasePath, 'getHit', playerCharacter.name) },
-      death: { imageSrc: `${player1BasePath}Death.png`, frameCount: getFrameCount(player1BasePath, 'death', playerCharacter.name) }
-    };    const player2Animations = {
-      idle: { imageSrc: `${player2BasePath}Idle.png`, frameCount: getFrameCount(player2BasePath, 'idle', opponentCharacter.name) },
-      run: { imageSrc: `${player2BasePath}Run.png`, frameCount: getFrameCount(player2BasePath, 'run', opponentCharacter.name) },
-      jump: { imageSrc: `${player2BasePath}Jump.png`, frameCount: getFrameCount(player2BasePath, 'jump', opponentCharacter.name) },
-      fall: { imageSrc: `${player2BasePath}Fall.png`, frameCount: getFrameCount(player2BasePath, 'fall', opponentCharacter.name) },
-      attack1: { imageSrc: `${player2BasePath}Attack1.png`, frameCount: getFrameCount(player2BasePath, 'attack1', opponentCharacter.name) },
-      attack2: { imageSrc: `${player2BasePath}Attack2.png`, frameCount: getFrameCount(player2BasePath, 'attack2', opponentCharacter.name) },
-      attack3: { imageSrc: `${player2BasePath}Attack3.png`, frameCount: getFrameCount(player2BasePath, 'attack3', opponentCharacter.name) },
-      getHit: { imageSrc: getHitAnimationPath(opponentCharacter, player2BasePath), frameCount: getFrameCount(player2BasePath, 'getHit', opponentCharacter.name) },
-      death: { imageSrc: `${player2BasePath}Death.png`, frameCount: getFrameCount(player2BasePath, 'death', opponentCharacter.name) }
+      idle: { imageSrc: `${player1BasePath}Idle.png`, frameCount: getFrameCount(player1BasePath, 'idle', playerCharacter.name, playerCharacter.id) },
+      run: { imageSrc: `${player1BasePath}Run.png`, frameCount: getFrameCount(player1BasePath, 'run', playerCharacter.name, playerCharacter.id) },
+      jump: { imageSrc: `${player1BasePath}Jump.png`, frameCount: getFrameCount(player1BasePath, 'jump', playerCharacter.name, playerCharacter.id) },
+      fall: { imageSrc: `${player1BasePath}Fall.png`, frameCount: getFrameCount(player1BasePath, 'fall', playerCharacter.name, playerCharacter.id) },
+      attack1: { imageSrc: `${player1BasePath}Attack1.png`, frameCount: getFrameCount(player1BasePath, 'attack1', playerCharacter.name, playerCharacter.id) },
+      attack2: { imageSrc: `${player1BasePath}Attack2.png`, frameCount: getFrameCount(player1BasePath, 'attack2', playerCharacter.name, playerCharacter.id) },      getHit: { imageSrc: getHitAnimationPath(playerCharacter, player1BasePath), frameCount: getFrameCount(player1BasePath, 'getHit', playerCharacter.name, playerCharacter.id) },
+      death: { 
+        imageSrc: playerCharacter.id === 'player3' ? 
+          `${player1BasePath}${encodeURIComponent('Death.png')}` : 
+          `${player1BasePath}Death.png`, 
+        frameCount: getFrameCount(player1BasePath, 'death', playerCharacter.name, playerCharacter.id) 
+      }
     };
-
+    
+    const player2Animations = {
+      idle: { imageSrc: `${player2BasePath}Idle.png`, frameCount: getFrameCount(player2BasePath, 'idle', opponentCharacter.name, opponentCharacter.id) },
+      run: { imageSrc: `${player2BasePath}Run.png`, frameCount: getFrameCount(player2BasePath, 'run', opponentCharacter.name, opponentCharacter.id) },
+      jump: { imageSrc: `${player2BasePath}Jump.png`, frameCount: getFrameCount(player2BasePath, 'jump', opponentCharacter.name, opponentCharacter.id) },
+      fall: { imageSrc: `${player2BasePath}Fall.png`, frameCount: getFrameCount(player2BasePath, 'fall', opponentCharacter.name, opponentCharacter.id) },
+      attack1: { imageSrc: `${player2BasePath}Attack1.png`, frameCount: getFrameCount(player2BasePath, 'attack1', opponentCharacter.name, opponentCharacter.id) },      attack2: { imageSrc: `${player2BasePath}Attack2.png`, frameCount: getFrameCount(player2BasePath, 'attack2', opponentCharacter.name, opponentCharacter.id) },
+      attack3: { imageSrc: `${player2BasePath}Attack3.png`, frameCount: getFrameCount(player2BasePath, 'attack3', opponentCharacter.name, opponentCharacter.id) },      getHit: { imageSrc: getHitAnimationPath(opponentCharacter, player2BasePath), frameCount: getFrameCount(player2BasePath, 'getHit', opponentCharacter.name, opponentCharacter.id) },
+      death: { 
+        imageSrc: opponentCharacter.id === 'player3' ? 
+          `${player2BasePath}${encodeURIComponent('Death.png')}` : 
+          `${player2BasePath}Death.png`, 
+        frameCount: getFrameCount(player2BasePath, 'death', opponentCharacter.name, opponentCharacter.id) 
+      }
+    };
+    
     // Initialize players
+    const validateSprites = async (character, basePath) => {
+      const idleImg = new Image();
+      const attackImg = new Image();
+      const hitImg = new Image();
+      
+      return new Promise((resolve) => {
+        let loaded = 0;
+        let errored = 0;
+        const total = 3;
+        
+        const checkComplete = () => {
+          if (loaded + errored >= total) {
+            resolve({
+              success: loaded === total,
+              loaded,
+              errored,
+              character: character.name
+            });
+          }
+        };
+        
+        idleImg.onload = () => { loaded++; checkComplete(); };
+        idleImg.onerror = () => { errored++; checkComplete(); };
+        
+        attackImg.onload = () => { loaded++; checkComplete(); };
+        attackImg.onerror = () => { errored++; checkComplete(); };
+        
+        hitImg.onload = () => { loaded++; checkComplete(); };
+        hitImg.onerror = () => { errored++; checkComplete(); };
+        
+        idleImg.src = `${basePath}Idle.png`;
+        attackImg.src = `${basePath}Attack1.png`;
+        hitImg.src = getHitAnimationPath(character, basePath);
+        
+        // Set a timeout to ensure we resolve even if images never load/error
+        setTimeout(() => {
+          if (loaded + errored < total) {
+            console.warn(`Image loading timeout for ${character.name}`);
+            resolve({
+              success: false,
+              loaded,
+              errored,
+              character: character.name,
+              timedOut: true
+            });
+          }
+        }, 3000);
+      });
+    };
+    
     const initPlayers = async () => {
       try {
+        console.log("Checking sprite paths:", {
+          player1: {
+            path: player1BasePath,
+            character: playerCharacter.name,
+            id: playerCharacter.id
+          },
+          player2: {
+            path: player2BasePath,
+            character: opponentCharacter.name,
+            id: opponentCharacter.id
+          }
+        });
+        
+        // Проверяем доступность спрайтов и их конкретные пути
+        const testImg1 = new Image();
+        const testImg2 = new Image();
+        testImg1.src = `${player1BasePath}Idle.png`;
+        testImg2.src = `${player2BasePath}Idle.png`;
+        
+        console.log("Testing direct image paths:", {
+          player1Idle: testImg1.src,
+          player2Idle: testImg2.src
+        });
+        
         const [player1SpritesExist, player2SpritesExist] = await Promise.all([
           checkSpriteExists(player1BasePath),
           checkSpriteExists(player2BasePath)
         ]);
 
-        if (!player1SpritesExist || !player2SpritesExist) {
-          console.error('Sprites not found');
+        console.log("Sprite check results:", {
+          player1Exists: player1SpritesExist,
+          player2Exists: player2SpritesExist,
+          player1IdlePath: `${player1BasePath}Idle.png`,
+          player2IdlePath: `${player2BasePath}Idle.png`
+        });        // More thorough sprite validation for Evil Wizard character
+        const [player1SpriteValidation, player2SpriteValidation] = await Promise.all([
+          validateSprites(playerCharacter, player1BasePath),
+          validateSprites(opponentCharacter, player2BasePath)
+        ]);
+        
+        console.log("Sprite validation results:", {
+          player1: player1SpriteValidation,
+          player2: player2SpriteValidation
+        });
+        
+        // Попробуем запустить с доступными спрайтами
+        if (!player1SpritesExist && !player2SpritesExist) {
+          console.error('No sprites found for either player');
           return;
         }
-          // Preload critical animations, especially death
+          // Special handling for Evil Wizard character
+        const isPlayer1EvilWizard = playerCharacter.id === 'player3';
+        const isPlayer2EvilWizard = opponentCharacter.id === 'player3';
+        
+        // Если хотя бы один из спрайтов доступен, продолжим
+        if (!player1SpritesExist || !player1SpriteValidation.success) {
+          console.warn('Player 1 sprites not found, using default sprites');
+          // Используем запасные спрайты для player1
+          const defaultPath = isPlayer1EvilWizard ? '/assets/player3/Sprites/' : '/assets/player1/Sprites/';
+            
+          player1Animations.idle.imageSrc = `${defaultPath}Idle.png`;
+          player1Animations.run.imageSrc = `${defaultPath}Run.png`;
+          player1Animations.jump.imageSrc = `${defaultPath}Jump.png`;
+          player1Animations.fall.imageSrc = `${defaultPath}Fall.png`;
+          player1Animations.attack1.imageSrc = `${defaultPath}Attack1.png`;
+          player1Animations.attack2.imageSrc = `${defaultPath}Attack2.png`;          // Different filename format for hit animation based on character
+          if (isPlayer1EvilWizard) {
+            // Properly encode the URL to handle spaces in filenames
+            player1Animations.getHit.imageSrc = `${defaultPath}${encodeURIComponent('Take hit.png')}`;
+            // Also properly encode the death animation
+            player1Animations.death.imageSrc = `${defaultPath}${encodeURIComponent('Death.png')}`;
+          } else {
+            player1Animations.getHit.imageSrc = `${defaultPath}Take_hit.png`;
+            player1Animations.death.imageSrc = `${defaultPath}Death.png`;
+          }
+        }
+        
+        if (!player2SpritesExist || !player2SpriteValidation.success) {
+          console.warn('Player 2 sprites not found, using default sprites');
+          // Используем запасные спрайты для player2
+          const defaultPath = isPlayer2EvilWizard ? '/assets/player3/Sprites/' : '/assets/player2/Sprites/';
+            
+          player2Animations.idle.imageSrc = `${defaultPath}Idle.png`;
+          player2Animations.run.imageSrc = `${defaultPath}Run.png`;
+          player2Animations.jump.imageSrc = `${defaultPath}Jump.png`;
+          player2Animations.fall.imageSrc = `${defaultPath}Fall.png`;
+          player2Animations.attack1.imageSrc = `${defaultPath}Attack1.png`;
+          player2Animations.attack2.imageSrc = `${defaultPath}Attack2.png`;
+            // Knight has attack3, Evil Wizard doesn't
+          if (!isPlayer2EvilWizard) {
+            player2Animations.attack3.imageSrc = `${defaultPath}Attack3.png`;
+          }
+          
+          // Different filename format for hit animation based on character
+          if (isPlayer2EvilWizard) {
+            // Properly encode the URL to handle spaces in filenames
+            player2Animations.getHit.imageSrc = `${defaultPath}${encodeURIComponent('Take hit.png')}`;
+            // Also properly encode the death animation
+            player2Animations.death.imageSrc = `${defaultPath}${encodeURIComponent('Death.png')}`;
+          } else {
+            player2Animations.getHit.imageSrc = `${defaultPath}Get_Hit.png`;
+            player2Animations.death.imageSrc = `${defaultPath}Death.png`;
+          }
+        }        // Preload critical animations, especially death
         const preloadResults = await Promise.all([
-          preloadAnimation(`${player1BasePath}Death.png`, 'player1-death'),
-          preloadAnimation(`${player2BasePath}Death.png`, 'player2-death'),
+          // Handle player1 death animation - encode URL if it's Evil Wizard
+          playerCharacter.id === 'player3'
+            ? preloadAnimation(`${player1BasePath}${encodeURIComponent('Death.png')}`, 'player1-death')
+            : preloadAnimation(`${player1BasePath}Death.png`, 'player1-death'),
+          
+          // Handle player2 death animation - encode URL if it's Evil Wizard
+          opponentCharacter.id === 'player3'
+            ? preloadAnimation(`${player2BasePath}${encodeURIComponent('Death.png')}`, 'player2-death')
+            : preloadAnimation(`${player2BasePath}Death.png`, 'player2-death'),
+          
+          // Hit animations are already handled by getHitAnimationPath
           preloadAnimation(getHitAnimationPath(playerCharacter, player1BasePath), 'player1-hit'),
           preloadAnimation(getHitAnimationPath(opponentCharacter, player2BasePath), 'player2-hit')
         ]);
@@ -814,72 +1064,76 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       player1: { left: false, right: false },
       player2: { left: false, right: false }
     };    const handleKeyDown = (e) => {
+      // Check if player refs exist
+      if (!player1Ref.current || !player2Ref.current) return;
+      
       // No controls if either player is dead
       if (player1Ref.current?.currentAnimation === 'death' || 
           player2Ref.current?.currentAnimation === 'death') return;
 
       // Player 1 controls
-      if (e.code === 'KeyD') {
+      if (e.code === 'KeyD' && player1Ref.current) {
         keys.player1.right = true;
         player1Ref.current.switchAnimation('run');
         player1Ref.current.setFacing('right');
         onPlayerAction?.({ type: 'move', player: 'player1', direction: 'right' });
       }
-      if (e.code === 'KeyA') {
+      if (e.code === 'KeyA' && player1Ref.current) {
         keys.player1.left = true;
         player1Ref.current.switchAnimation('run');
         player1Ref.current.setFacing('left');
         onPlayerAction?.({ type: 'move', player: 'player1', direction: 'left' });
-      }      if ((e.code === 'KeyW' || e.code === 'Space') && player1Pos.current.y === groundY1) {
+      }      if ((e.code === 'KeyW' || e.code === 'Space') && player1Ref.current && player1Pos.current.y === groundY1) {
         // Jump height based on speed stat
         player1Velocity.current.y = -7 - (player1Stats.current.speed * 0.2);
         player1Ref.current.switchAnimation('jump');
         onPlayerAction?.({ type: 'jump', player: 'player1' });
-      }      if (e.code === 'KeyE' && !player1Attack.current.inProgress) {
+      }      if (e.code === 'KeyE' && player1Ref.current && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack1');
         player1Attack.current = { inProgress: true, type: 'attack1' };
-        if (checkAttackHit(player1Ref.current, player2Ref.current)) {
+        if (player2Ref.current && checkAttackHit(player1Ref.current, player2Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack1', hit: true });
         }
-      }      if (e.code === 'KeyQ' && !player1Attack.current.inProgress) {
+      }      if (e.code === 'KeyQ' && player1Ref.current && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack2');
         player1Attack.current = { inProgress: true, type: 'attack2' };
-        if (checkAttackHit(player1Ref.current, player2Ref.current)) {
+        if (player2Ref.current && checkAttackHit(player1Ref.current, player2Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack2', hit: true });
         }
-      }
-
-      // Player 2 controls
-      if (e.code === 'ArrowLeft') {
+      }      // Player 2 controls
+      if (e.code === 'ArrowLeft' && player2Ref.current) {
         keys.player2.left = true;
         player2Ref.current.switchAnimation('run');
         player2Ref.current.setFacing('left');
         onPlayerAction?.({ type: 'move', player: 'player2', direction: 'left' });
       }
-      if (e.code === 'ArrowRight') {
+      if (e.code === 'ArrowRight' && player2Ref.current) {
         keys.player2.right = true;
         player2Ref.current.switchAnimation('run');
         player2Ref.current.setFacing('right');
         onPlayerAction?.({ type: 'move', player: 'player2', direction: 'right' });
-      }      if (e.code === 'ArrowUp' && player2Pos.current.y === groundY2) {
+      }      if (e.code === 'ArrowUp' && player2Ref.current && player2Pos.current.y === groundY2) {
         // Jump height based on speed stat
         player2Velocity.current.y = -7 - (player2Stats.current.speed * 0.2);
         player2Ref.current.switchAnimation('jump');
         onPlayerAction?.({ type: 'jump', player: 'player2' });
-      }      if (e.code === 'KeyK' && !player2Attack.current.inProgress) {
+      }      if (e.code === 'KeyK' && player2Ref.current && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack1');
         player2Attack.current = { inProgress: true, type: 'attack1' };
-        if (checkAttackHit(player2Ref.current, player1Ref.current)) {
+        if (player1Ref.current && checkAttackHit(player2Ref.current, player1Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack1', hit: true });
         }
-      }      if (e.code === 'KeyL' && !player2Attack.current.inProgress) {
+      }      if (e.code === 'KeyL' && player2Ref.current && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack2');
         player2Attack.current = { inProgress: true, type: 'attack2' };
-        if (checkAttackHit(player2Ref.current, player1Ref.current)) {
+        if (player1Ref.current && checkAttackHit(player2Ref.current, player1Ref.current)) {
           onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack2', hit: true });
         }
       }
     };    const handleKeyUp = (e) => {
+      // Check if player refs exist
+      if (!player1Ref.current || !player2Ref.current) return;
+      
       // No controls if either player is dead
       if (player1Ref.current?.currentAnimation === 'death' || 
           player2Ref.current?.currentAnimation === 'death') return;
@@ -890,11 +1144,11 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       if (e.code === 'ArrowRight') keys.player2.right = false;
 
       // Reset to idle if not moving or attacking
-      if (!keys.player1.left && !keys.player1.right && !player1Attack.current.inProgress &&
+      if (player1Ref.current && !keys.player1.left && !keys.player1.right && !player1Attack.current.inProgress &&
           player1Pos.current.y === groundY1) {
         player1Ref.current.switchAnimation('idle');
       }
-      if (!keys.player2.left && !keys.player2.right && !player2Attack.current.inProgress &&
+      if (player2Ref.current && !keys.player2.left && !keys.player2.right && !player2Attack.current.inProgress &&
           player2Pos.current.y === groundY2) {
         player2Ref.current.switchAnimation('idle');
       }
@@ -911,15 +1165,13 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
           requestAnimationFrame(animate);
         }
       });
-    };
-
-    // Cleanup
+    };    // Cleanup
     return () => {
       window.removeEventListener('resize', resizeCanvas);
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [playerCharacter, opponentCharacter, getCharacterSpritePath, checkSpriteExists, onPlayerAction]);
+  }, [playerCharacter, opponentCharacter, getCharacterSpritePath, getHitAnimationPath, checkSpriteExists, preloadAnimation, onPlayerAction]);
 
   // Event handling
   const handleGameEvent = (eventType, eventData) => {

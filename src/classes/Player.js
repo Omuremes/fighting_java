@@ -145,7 +145,11 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
       console.error(`Animation not found: ${animationType}`);
       return;
     }
-      // If player is locked but we're switching to death, allow it
+    
+    // Log animation changes for debugging
+    console.log(`Switching animation to: ${animationType}, image: ${this.animations[animationType].imageSrc}`);
+      
+    // If player is locked but we're switching to death, allow it
     if (this.locked && animationType !== 'death') return;
     
     // Never switch from death animation (death is final) unless we're starting a new round
@@ -188,11 +192,71 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     
     // Get the image path from animations
     const newImageSrc = this.animations[animationType].imageSrc;
-    
-    // Only change the image source if it's different to avoid unnecessary reloading
-    if (this.image.src !== newImageSrc) {
-      console.log(`Loading animation: ${animationType} from ${newImageSrc}`);
-      this.image.src = newImageSrc;
+      try {
+      // Only change the image source if it's different to avoid unnecessary reloading
+      if (this.image.src !== newImageSrc) {
+        console.log(`Loading animation: ${animationType} from ${newImageSrc}`);
+        
+        // Set up error handling before changing src
+        const handleError = () => {
+          console.error(`Failed to load image: ${newImageSrc}`);
+          this.imageError = true;
+          
+          // Try to recover with a fallback if this is the Evil Wizard character
+          if (newImageSrc.includes('player3')) {
+            console.log('Attempting to recover Evil Wizard sprite with fallback');
+            const fallbackPath = '/assets/player3/Sprites/';
+            
+            // Define filenames that need special handling
+            const fileNamesWithSpaces = {
+              'getHit': 'Take hit.png',
+              'death': 'Death.png'
+              // Add other filenames with spaces if needed
+            };
+            
+            // Get the correct filename, either from the special cases or by default
+            let fileName = fileNamesWithSpaces[animationType] || `${animationType}.png`;
+            
+            // Properly encode the URL to handle spaces in filenames
+            const fallbackSrc = `${fallbackPath}${encodeURIComponent(fileName)}`;
+            console.log(`Using fallback: ${fallbackSrc}`);
+            this.image.src = fallbackSrc;
+          } else {
+            // Fallback to default characters if Evil Wizard fails
+            const defaultPath = '/assets/player1/Sprites/';
+            const defaultSrc = `${defaultPath}${animationType === 'getHit' ? 'Take_hit.png' : `${animationType}.png`}`;
+            console.log(`Using default fallback: ${defaultSrc}`);
+            this.image.src = defaultSrc;
+          }
+        };
+        
+        this.image.onerror = handleError;
+        
+        // Proactively handle Evil Wizard animations with spaces in filenames
+        if (newImageSrc.includes('player3')) {
+          if (animationType === 'getHit') {
+            // Always encode Take hit.png for Evil Wizard regardless of what the animator provides
+            const basePath = '/assets/player3/Sprites/';
+            const encodedPath = `${basePath}${encodeURIComponent('Take_hit.png')}`;
+            console.log(`Proactively encoding Evil Wizard hit animation path: ${encodedPath}`);
+            this.image.src = encodedPath;
+          } else if (animationType === 'death') {
+            // Always encode Death.png for Evil Wizard
+            const basePath = '/assets/player3/Sprites/';
+            const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
+            console.log(`Proactively encoding Evil Wizard death animation path: ${encodedPath}`);
+            this.image.src = encodedPath;
+          } else {
+            // Normal case - use the provided path
+            this.image.src = newImageSrc;
+          }
+        } else {
+          // Not Evil Wizard, use the original path
+          this.image.src = newImageSrc;
+        }
+      }
+    } catch (error) {
+      console.error('Error switching animation:', error);
     }
     
     this.frameCount = this.animations[animationType].frameCount;
@@ -250,8 +314,7 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     
     console.log("Player completely reset to idle state");
   }
-    
-  // Force the player to play the death animation properly
+      // Force the player to play the death animation properly
   forceDeathAnimation() {
     if (!this.animations.death) {
       console.error("Death animation not available");
@@ -260,21 +323,41 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     
     const deathSrc = this.animations.death.imageSrc;
     const frameCount = this.animations.death.frameCount;
-    
     console.log("Forcing death animation with frame count:", frameCount);
     console.log("Death animation path:", deathSrc);
     
     // Setup image load handlers
     this.image.onerror = () => {
       console.error("Failed to load death animation:", deathSrc);
+      
+      // Try with URL-encoded path if it's Evil Wizard
+      if (deathSrc.includes('player3')) {
+        // Ensure we're using proper URL encoding for any spaces in the filename
+        const basePath = '/assets/player3/Sprites/';
+        const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
+        console.log("Trying URL-encoded path:", encodedPath);
+        this.image.src = encodedPath;
+      }
     };
     
     this.image.onload = () => {
       console.log("Death animation loaded successfully:", deathSrc);
     };
-      // Force the animation state
+    
+    // Force the animation state
     this.currentAnimation = 'death';
-    this.image.src = deathSrc;
+    
+    // If the path contains player3, ensure we properly encode the URL
+    // regardless of whether we think the path is already encoded
+    if (deathSrc.includes('player3') && deathSrc.includes('Death')) {
+      const basePath = '/assets/player3/Sprites/';
+      const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
+      console.log("Proactively using URL-encoded path:", encodedPath);
+      this.image.src = encodedPath;
+    } else {
+      this.image.src = deathSrc;
+    }
+    
     this.frameCount = frameCount;
     this.currentFrame = 0;
     this.framesElapsed = 0;

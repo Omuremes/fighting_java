@@ -120,11 +120,14 @@ export function AuthProvider({ children }) {
       setLoading(false);
     });
 
-    return unsubscribe;
-  }, []);  // Получение списка персонажей из Firebase Storage
+    return unsubscribe;  }, []); 
+  
+  // Получение списка персонажей из Firebase Storage
   async function getCharacters() {
     try {
-      const characters = [];        // Информация о персонажах
+      const characters = [];
+      
+      // Информация о персонажах      
       const characterInfo = {
         'character1': {
           name: 'Самурай',
@@ -141,7 +144,13 @@ export function AuthProvider({ children }) {
           stats: {
             attack: 7,
             defense: 4,
-            speed: 9
+            speed: 9          }        },'player3': {
+          name: 'Злой Волшебник',
+          description: 'Могущественный темный маг',
+          stats: {
+            attack: 10,
+            defense: 5,
+            speed: 4
           }
         },
         'character3': {
