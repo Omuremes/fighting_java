@@ -676,19 +676,94 @@ export function AuthProvider({ children }) {
       return false;
     }
   }
-  
-  // Helper function to get local IP address
+    // Helper function to get local IP address
   async function getLocalIp() {
     try {
-      // Use a public API to get the client's local IP
-      const response = await fetch('https://api.ipify.org?format=json');
-      const data = await response.json();
-      return data.ip;
+      // For local development, we need to get the local network IP, not the public one
+      // This approach uses WebRTC to get local IPs
+      return new Promise((resolve, reject) => {
+        // Using WebRTC to detect local IP addresses
+        const pc = new RTCPeerConnection({
+          // Use public STUN servers
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+        
+        // Listening for candidate events to get IP addresses
+        pc.createDataChannel('');
+        pc.onicecandidate = (event) => {
+          if (!event.candidate) return;
+          
+          // Regex to extract IP addresses from ICE candidate strings
+          const ipRegex = /([0-9]{1,3}(\.[0-9]{1,3}){3})/;
+          const match = ipRegex.exec(event.candidate.candidate);
+          
+          if (match) {
+            const ip = match[1];
+            // We only want local network IPs (usually starting with 192.168, 10., or 172.)
+            if (ip.match(/^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/)) {
+              resolve(ip);
+              pc.close();
+            }
+          }
+        };
+        
+        // Create an offer to generate ICE candidates
+        pc.createOffer()
+          .then(offer => pc.setLocalDescription(offer))
+          .catch(err => {
+            console.error("Error creating WebRTC offer:", err);
+            // Fallback to localhost if WebRTC detection fails
+            resolve('127.0.0.1');
+          });
+        
+        // Timeout in case no local IP is found
+        setTimeout(() => {
+          resolve('127.0.0.1');
+          pc.close();
+        }, 2000);
+      });
     } catch (error) {
       console.error("Error getting local IP:", error);
-      return 'unknown';
+      return '127.0.0.1';
     }
   }
+    // Function to sync player actions in online game
+  async function syncPlayerAction(roomId, playerType, actionData) {
+    try {
+      const timestamp = new Date().toISOString();
+      const updateField = playerType === 'host' ? 'hostAction' : 'guestAction';
+      
+      // Rate limiting for position updates to avoid excessive writes
+      // Only limit regular movement updates, not critical actions like attacks
+      if (actionData.type === 'move' && !actionData.isCritical) {
+        const now = Date.now();
+        const lastUpdateTime = syncPlayerAction.lastUpdateTime || 0;
+        
+        // Limit position updates to once every 50ms (20 updates per second)
+        if (now - lastUpdateTime < 50) {
+          return true; // Skip this update
+        }
+        
+        syncPlayerAction.lastUpdateTime = now;
+      }
+      
+      // Update the room with player action data
+      await setDoc(doc(db, "rooms", roomId), {
+        [updateField]: {
+          ...actionData,
+          timestamp
+        }
+      }, { merge: true });
+      
+      return true;
+    } catch (error) {
+      console.error("Error syncing player action:", error);
+      return false;
+    }
+  }
+  
+  // Initialize the lastUpdateTime property
+  syncPlayerAction.lastUpdateTime = 0;
   const value = {
     currentUser,
     register,
@@ -709,7 +784,8 @@ export function AuthProvider({ children }) {
     getRoomData,
     listenToRoom,
     updateRoomStatus,
-    getLocalIp
+    getLocalIp,
+    syncPlayerAction
   };
 
   return (

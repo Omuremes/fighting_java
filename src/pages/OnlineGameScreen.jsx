@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import GameCanvas from '../components/GameCanvas';
 import GameOverModal from '../components/GameOverModal';
@@ -9,15 +9,25 @@ const OnlineGameScreen = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { roomCode } = useParams();
-  const { currentUser, updateRating, listenToRoom, updateRoomStatus } = useAuth();
+  const { currentUser, updateRating, listenToRoom, updateRoomStatus, syncPlayerAction } = useAuth();
   
   const [isHost, setIsHost] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [playerCharacter, setPlayerCharacter] = useState(null);
   const [opponentCharacter, setOpponentCharacter] = useState(null);
-  const [roomData, setRoomData] = useState(null);
-  const [rewardData, setRewardData] = useState(null);
+  const [roomData, setRoomData] = useState(null);  const [rewardData, setRewardData] = useState(null);
+  const [playerPosition, setPlayerPosition] = useState({ x: 100, y: 0 });
+  const [opponentPosition, setOpponentPosition] = useState({ x: 800, y: 0 });
+  const [playerAttack, setPlayerAttack] = useState(null);
+  const [opponentAttack, setOpponentAttack] = useState(null);  const lastSyncedAction = useRef(null);
+  const gameCanvasRef = useRef(null);
+  const lastPositionUpdate = useRef(Date.now());
+  
+  // Connection status state
+  const [connectionStatus, setConnectionStatus] = useState('connected');
+  const connectionTimeout = useRef(null);
+  const lastReceivedUpdate = useRef(Date.now());
   
   // Инициализация состояния игры при загрузке компонента
   useEffect(() => {
@@ -49,8 +59,7 @@ const OnlineGameScreen = () => {
         setOpponentCharacter(location.state.roomData.hostCharacter);
       }
     }
-    
-    // Устанавливаем слушателя для комнаты
+      // Устанавливаем слушателя для комнаты
     const unsubscribe = listenToRoom(roomCode, (data) => {
       if (data) {
         setRoomData(data);
@@ -60,6 +69,44 @@ const OnlineGameScreen = () => {
           setOpponentCharacter(data.guestCharacter);
         } else if (!isHostPlayer && data.hostCharacter) {
           setOpponentCharacter(data.hostCharacter);
+        }
+        
+        // Синхронизация действий оппонента
+        const opponentActionField = isHostPlayer ? 'guestAction' : 'hostAction';
+        const playerActionField = isHostPlayer ? 'hostAction' : 'guestAction';
+        
+        if (data[opponentActionField] && data[opponentActionField].timestamp) {
+          // Проверяем, что это новое действие, которое мы еще не обрабатывали
+          if (!lastSyncedAction.current || 
+              data[opponentActionField].timestamp > lastSyncedAction.current) {
+            
+            const opponentAction = data[opponentActionField];
+            lastSyncedAction.current = opponentAction.timestamp;
+              // Обновляем позицию оппонента с плавной интерполяцией
+            if (opponentAction.position) {
+              // Instead of immediate update, use requestAnimationFrame for smoother transitions
+              const targetPos = opponentAction.position;
+              
+              // Update last received update timestamp for connection monitoring
+              lastReceivedUpdate.current = Date.now();
+              
+              // Update opponent position directly for now - we'll add interpolation in GameCanvas
+              setOpponentPosition(targetPos);
+            }
+            
+            // Обрабатываем атаки оппонента
+            if (opponentAction.attack) {
+              setOpponentAttack({
+                type: opponentAction.attack.type,
+                timestamp: new Date().getTime()
+              });
+              
+              // Если это была атака, которая должна нанести урон игроку
+              if (opponentAction.attack.hit && gameCanvasRef.current) {
+                gameCanvasRef.current.receiveOpponentAttack(opponentAction.attack);
+              }
+            }
+          }
         }
         
         // Если статус изменился на 'completed', и игра еще не завершена,
@@ -80,31 +127,132 @@ const OnlineGameScreen = () => {
     };
   }, [currentUser, navigate, roomCode, location.state, listenToRoom]);
   
-  // Обработка действий игрока
-  const handlePlayerAction = async (action) => {
-    if (action.type === 'gameOver') {
-      setIsGameOver(true);
-      setWinner(action.winner);
+  // Monitor connection status based on opponent updates
+  useEffect(() => {
+    // Reset timeout when we receive opponent data
+    if (opponentPosition || opponentAttack) {
+      lastReceivedUpdate.current = Date.now();
       
-      // Обновляем статус комнаты
-      const isWin = action.winner === 'player1';
-      await updateRoomStatus(roomCode, 'completed');
-      
-      // Также обновляем победителя в комнате
-      await updateRoomStatus(roomCode, {
-        status: 'completed',
-        winner: isHost ? (isWin ? 'host' : 'guest') : (isWin ? 'guest' : 'host')
-      });
-      
-      // Обновляем рейтинг пользователя
-      if (currentUser) {
-        try {
-          const result = await updateRating(currentUser.uid, isWin);
-          setRewardData(result);
-        } catch (error) {
-          console.error('Ошибка при обновлении рейтинга', error);
-        }
+      if (connectionStatus !== 'connected') {
+        setConnectionStatus('connected');
       }
+      
+      // Clear any existing timeout
+      if (connectionTimeout.current) {
+        clearTimeout(connectionTimeout.current);
+      }
+    }
+    
+    // Create a new timeout to check connection
+    connectionTimeout.current = setTimeout(() => {
+      const timeSinceLastUpdate = Date.now() - lastReceivedUpdate.current;
+      
+      if (timeSinceLastUpdate > 5000) {
+        // If no updates for 5 seconds, consider connection weak
+        setConnectionStatus('weak');
+      }
+      
+      if (timeSinceLastUpdate > 10000) {
+        // If no updates for 10 seconds, consider connection lost
+        setConnectionStatus('lost');
+      }
+    }, 5000);
+    
+    return () => {
+      if (connectionTimeout.current) {
+        clearTimeout(connectionTimeout.current);
+      }
+    };
+  }, [opponentPosition, opponentAttack, connectionStatus]);
+  
+    // Обработка действий игрока
+  const handlePlayerAction = async (action) => {
+    // Определяем тип игрока для синхронизации (хост или гость)
+    const playerType = isHost ? 'host' : 'guest';
+    
+    switch (action.type) {
+      case 'gameOver':
+        setIsGameOver(true);
+        setWinner(action.winner);
+        
+        // Обновляем статус комнаты
+        const isWin = action.winner === 'player1';
+        await updateRoomStatus(roomCode, 'completed');
+        
+        // Также обновляем победителя в комнате
+        await updateRoomStatus(roomCode, {
+          status: 'completed',
+          winner: isHost ? (isWin ? 'host' : 'guest') : (isWin ? 'guest' : 'host')
+        });
+        
+        // Обновляем рейтинг пользователя
+        if (currentUser) {
+          try {
+            const result = await updateRating(currentUser.uid, isWin);
+            setRewardData(result);
+          } catch (error) {
+            console.error('Ошибка при обновлении рейтинга', error);
+          }
+        }
+        break;          case 'move':
+        // Обновляем позицию игрока локально для мгновенного отклика
+        setPlayerPosition(action.position);
+          // Enhanced position update with better optimization
+        if (!action.isCritical) {
+          // Enhanced throttling with velocity prediction
+          const now = Date.now();
+          const timeSinceLastUpdate = now - lastPositionUpdate.current;
+          
+          // Increase update interval to reduce network traffic (5 updates per second)
+          if (timeSinceLastUpdate > 200) { 
+            // Include movement direction and velocity for better prediction on receiver side
+            await syncPlayerAction(roomCode, playerType, {
+              position: action.position,
+              timestamp: now,
+              direction: action.direction || 'none',
+              velocity: action.velocity || { x: 0, y: 0 }
+            });
+            lastPositionUpdate.current = now;
+          }
+        } else {
+          // Critical position updates (e.g., after an attack) are sent immediately
+          await syncPlayerAction(roomCode, playerType, {
+            position: action.position,
+            isCritical: true,
+            timestamp: Date.now(),
+            direction: action.direction || 'none',
+            velocity: action.velocity || { x: 0, y: 0 }
+          });
+        }
+        break;
+        
+      case 'attack':
+        // Обновляем состояние атаки локально
+        setPlayerAttack({
+          type: action.attackType,
+          timestamp: new Date().getTime()
+        });
+        
+        // Синхронизируем атаку с Firebase
+        await syncPlayerAction(roomCode, playerType, {
+          attack: {
+            type: action.attackType,
+            hit: action.hit,
+            damage: action.damage
+          }
+        });
+        break;
+        
+      case 'hit':
+        // Когда игрок получает урон, синхронизируем с Firebase
+        await syncPlayerAction(roomCode, playerType, {
+          health: action.remainingHealth
+        });
+        break;
+        
+      default:
+        // Для других типов событий
+        console.log('Unhandled player action:', action);
     }
   };
   
@@ -130,20 +278,33 @@ const OnlineGameScreen = () => {
       </div>
     );
   }
-  
   return (
     <div className="relative w-screen h-screen bg-black">
       <GameCanvas 
+        ref={gameCanvasRef}
         gameMode="online"
         playerCharacter={playerCharacter}
         opponentCharacter={opponentCharacter}
+        playerPosition={playerPosition}
+        opponentPosition={opponentPosition}
+        playerAttack={playerAttack}
+        opponentAttack={opponentAttack}
         onPlayerAction={handlePlayerAction}
+        isHost={isHost}
       />
       
       <GameHud 
         player1Character={playerCharacter}
         player2Character={opponentCharacter}
       />
+      
+      {/* Connection status indicator */}
+      <div className={`absolute top-4 right-4 px-3 py-1 rounded-md text-white font-semibold text-sm
+                     ${connectionStatus === 'connected' ? 'bg-green-600' : 
+                       connectionStatus === 'weak' ? 'bg-yellow-600' : 'bg-red-600'}`}>
+        {connectionStatus === 'connected' ? 'Соединение: стабильное' :
+         connectionStatus === 'weak' ? 'Соединение: слабое' : 'Соединение: потеряно'}
+      </div>
       
       {isGameOver && (
         <GameOverModal 

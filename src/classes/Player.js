@@ -1,15 +1,16 @@
-export default class Player {  constructor({ ctx, imageSrc, position, frameCount, width, height, animationSpeed = 0.1 }) {
+export default class Player {
+  constructor({ ctx, imageSrc, position, frameCount, width, height, animationSpeed = 0.1 }) {
     this.ctx = ctx;
     this.image = new Image();
-    this.imageLoaded = false;
-    this.imageError = false;
+    this.imageLoaded = false;    this.imageError = false;
     
     this.image.onerror = () => {
+      // Only log errors to avoid console spam
       console.error("Error loading image:", imageSrc);
       this.imageError = true;
     };
     this.image.onload = () => {
-      console.log("Image loaded successfully:", imageSrc);
+      // Removed console log to avoid console spam
       this.imageLoaded = true;
     };
     
@@ -69,7 +70,9 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
 
   setOnGround(value) {
     this.onGround = value;
-  }  update() {
+  }
+  
+  update() {
     // Animation frame update
     this.framesElapsed++;
     if (this.framesElapsed >= 1 / this.animationSpeed) {
@@ -81,17 +84,20 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
           this.currentFrame++;
         } else {
           this.animationEnded = true;
-          // When hit animation ends, we should not loop it
-          // The switchAnimation logic in GameCanvas will handle transitioning back to idle
+          // When hit animation ends, we should not loop it          // The switchAnimation logic in GameCanvas will handle transitioning back to idle
         }
-      }      // Special handling for death animation - always play to completion and never loop
+      }
+      // Special handling for death animation - always play to completion and never loop
       else if (this.currentAnimation === 'death') {
         if (this.currentFrame < this.frameCount - 1) {
           this.currentFrame++;
         } else {
           this.animationEnded = true;
           this.deathAnimationCompleted = true;
-          console.log("Death animation completed", this.currentFrame, this.frameCount);
+          // Only log in development mode
+          if (process.env.NODE_ENV === 'development') {
+            console.log("Death animation completed");
+          }
           // Death animation completed - no auto transition
         }
       }
@@ -137,17 +143,19 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
           frame: this.currentFrame,
           frameCount: this.frameCount
         });
-      }
-    }
-  }  switchAnimation(animationType) {
-    // Check if the animation exists and if the player is not locked
+      }    }
+  }
+  
+  switchAnimation(animationType) {// Check if the animation exists and if the player is not locked
     if (!this.animations[animationType]) {
       console.error(`Animation not found: ${animationType}`);
       return;
     }
     
-    // Log animation changes for debugging
-    console.log(`Switching animation to: ${animationType}, image: ${this.animations[animationType].imageSrc}`);
+    // Only log animation changes in development mode
+    if (process.env.NODE_ENV === 'development' && animationType !== 'idle') {
+      console.log(`Switching animation to: ${animationType}`);
+    }
       
     // If player is locked but we're switching to death, allow it
     if (this.locked && animationType !== 'death') return;
@@ -177,10 +185,9 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
         return;
       }
     }
-    
-    // Debug log for death animation
-    if (animationType === 'death') {
-      console.log(`Switching to death animation, frameCount: ${this.animations[animationType].frameCount}`);
+      // Debug log for death animation only in development mode
+    if (animationType === 'death' && process.env.NODE_ENV === 'development') {
+      console.log(`Setting up death animation with ${this.animations[animationType].frameCount} frames`);
     }
     
     // Reset image loading state flags
@@ -191,20 +198,24 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     this.currentAnimation = animationType;
     
     // Get the image path from animations
-    const newImageSrc = this.animations[animationType].imageSrc;
-      try {
+    const newImageSrc = this.animations[animationType].imageSrc;      try {
       // Only change the image source if it's different to avoid unnecessary reloading
       if (this.image.src !== newImageSrc) {
-        console.log(`Loading animation: ${animationType} from ${newImageSrc}`);
+        // Only log in development mode to reduce console spam
+        if (process.env.NODE_ENV === 'development' && animationType !== 'idle') {
+          console.log(`Loading animation: ${animationType}`);
+        }
         
         // Set up error handling before changing src
         const handleError = () => {
           console.error(`Failed to load image: ${newImageSrc}`);
           this.imageError = true;
-          
-          // Try to recover with a fallback if this is the Evil Wizard character
+            // Try to recover with a fallback if this is the Evil Wizard character
           if (newImageSrc.includes('player3')) {
-            console.log('Attempting to recover Evil Wizard sprite with fallback');
+            // Reduce console logging
+            if (process.env.NODE_ENV === 'development') {
+              console.log('Recovering Evil Wizard sprite with fallback');
+            }
             const fallbackPath = '/assets/player3/Sprites/';
             
             // Define filenames that need special handling
@@ -213,19 +224,22 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
               'death': 'Death.png'
               // Add other filenames with spaces if needed
             };
-            
-            // Get the correct filename, either from the special cases or by default
+              // Get the correct filename, either from the special cases or by default
             let fileName = fileNamesWithSpaces[animationType] || `${animationType}.png`;
             
             // Properly encode the URL to handle spaces in filenames
             const fallbackSrc = `${fallbackPath}${encodeURIComponent(fileName)}`;
-            console.log(`Using fallback: ${fallbackSrc}`);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Using fallback for ${animationType}`);
+            }
             this.image.src = fallbackSrc;
           } else {
             // Fallback to default characters if Evil Wizard fails
             const defaultPath = '/assets/player1/Sprites/';
             const defaultSrc = `${defaultPath}${animationType === 'getHit' ? 'Take_hit.png' : `${animationType}.png`}`;
-            console.log(`Using default fallback: ${defaultSrc}`);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Using default fallback for ${animationType}`);
+            }
             this.image.src = defaultSrc;
           }
         };
@@ -236,15 +250,18 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
         if (newImageSrc.includes('player3')) {
           if (animationType === 'getHit') {
             // Always encode Take hit.png for Evil Wizard regardless of what the animator provides
-            const basePath = '/assets/player3/Sprites/';
-            const encodedPath = `${basePath}${encodeURIComponent('Take_hit.png')}`;
-            console.log(`Proactively encoding Evil Wizard hit animation path: ${encodedPath}`);
+            const basePath = '/assets/player3/Sprites/';            const encodedPath = `${basePath}${encodeURIComponent('Take_hit.png')}`;
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Using encoded path for Evil Wizard hit animation`);
+            }
             this.image.src = encodedPath;
           } else if (animationType === 'death') {
             // Always encode Death.png for Evil Wizard
             const basePath = '/assets/player3/Sprites/';
             const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
-            console.log(`Proactively encoding Evil Wizard death animation path: ${encodedPath}`);
+            if (process.env.NODE_ENV === 'development') {
+              console.log(`Using encoded path for Evil Wizard death animation`);
+            }
             this.image.src = encodedPath;
           } else {
             // Normal case - use the provided path
@@ -265,10 +282,12 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     this.animationEnded = false;
   }lockAnimation(animationType) {
     this.locked = true;
-    
-    // Special handling for death animation
+      // Special handling for death animation
     if (animationType === 'death') {
-      console.log("Locking for death animation");
+      // Only log in development mode
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Locking for death animation");
+      }
       // Make sure we reset animation state for death
       this.currentFrame = 0;
       this.framesElapsed = 0;
@@ -284,13 +303,14 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     this.locked = false;
     this.animationEnded = false;
   }
-  
-  // Force reset the current animation
+    // Force reset the current animation
   resetAnimation() {
     this.currentFrame = 0;
     this.framesElapsed = 0;
     this.animationEnded = false;
-  }  // Helper method to check if current animation is complete
+  }
+  
+  // Helper method to check if current animation is complete
   isAnimationComplete() {
     if (!this.currentAnimation || !this.animations[this.currentAnimation]) {
       console.warn("Animation not defined:", this.currentAnimation);
@@ -306,13 +326,15 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     this.deathAnimationCompleted = false;
     this.currentFrame = 0;
     this.framesElapsed = 0;
-    
-    // Force animation state change without checks
+      // Force animation state change without checks
     this.currentAnimation = 'idle';
     this.image.src = this.animations['idle'].imageSrc;
     this.frameCount = this.animations['idle'].frameCount;
     
-    console.log("Player completely reset to idle state");
+    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log("Player reset to idle state");
+    }
   }
       // Force the player to play the death animation properly
   forceDeathAnimation() {
@@ -322,9 +344,10 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
     }
     
     const deathSrc = this.animations.death.imageSrc;
-    const frameCount = this.animations.death.frameCount;
-    console.log("Forcing death animation with frame count:", frameCount);
-    console.log("Death animation path:", deathSrc);
+    const frameCount = this.animations.death.frameCount;    // Only log in development mode
+    if (process.env.NODE_ENV === 'development') {
+      console.log("Setting death animation with frame count:", frameCount);
+    }
     
     // Setup image load handlers
     this.image.onerror = () => {
@@ -335,24 +358,29 @@ export default class Player {  constructor({ ctx, imageSrc, position, frameCount
         // Ensure we're using proper URL encoding for any spaces in the filename
         const basePath = '/assets/player3/Sprites/';
         const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
-        console.log("Trying URL-encoded path:", encodedPath);
+        if (process.env.NODE_ENV === 'development') {
+          console.log("Using encoded path for Evil Wizard death animation");
+        }
         this.image.src = encodedPath;
       }
     };
     
     this.image.onload = () => {
-      console.log("Death animation loaded successfully:", deathSrc);
+      // Death animation loaded successfully - no need to log in production
+      this.imageLoaded = true;
     };
     
     // Force the animation state
     this.currentAnimation = 'death';
-    
-    // If the path contains player3, ensure we properly encode the URL
+      // If the path contains player3, ensure we properly encode the URL
     // regardless of whether we think the path is already encoded
     if (deathSrc.includes('player3') && deathSrc.includes('Death')) {
       const basePath = '/assets/player3/Sprites/';
       const encodedPath = `${basePath}${encodeURIComponent('Death.png')}`;
-      console.log("Proactively using URL-encoded path:", encodedPath);
+      // Only log in development mode to reduce console spam
+      if (process.env.NODE_ENV === 'development') {
+        console.log("Using URL-encoded path for death animation");
+      }
       this.image.src = encodedPath;
     } else {
       this.image.src = deathSrc;
