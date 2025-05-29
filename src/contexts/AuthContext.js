@@ -12,7 +12,8 @@ import {
   collection, 
   doc, 
   setDoc, 
-  getDoc 
+  getDoc,
+  onSnapshot
 } from 'firebase/firestore';
 import { getAnalytics } from "firebase/analytics";
 import { getStorage, ref, getDownloadURL, listAll } from 'firebase/storage';
@@ -51,7 +52,6 @@ const getRank = (rating) => {
 export function AuthProvider({ children }) {
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
   // Регистрация пользователя
   async function register(email, password, name) {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -60,7 +60,9 @@ export function AuthProvider({ children }) {
       name,
       password: "***", // Не сохраняем пароль в Firestore в открытом виде
       rating: 0,
-      rank: 'Бронза'
+      rank: 'Бронза',
+      coin: 100, // Начальное количество монет
+      gem: 5    // Начальное количество драгоценных камней
     });
     return userCredential;
   }
@@ -88,39 +90,321 @@ export function AuthProvider({ children }) {
   async function updateUserData(uid, data) {
     await setDoc(doc(db, "users", uid), data, { merge: true });
     return getUserData(uid);
-  }
-
-  // Обновление рейтинга после игры
+  }  // Обновление рейтинга после игры
   async function updateRating(uid, isWin) {
-    const userData = await getUserData(uid);
-    if (userData) {
-      const ratingChange = isWin ? 15 : -10;
-      const newRating = Math.max(0, userData.rating + ratingChange);
-      const newRank = getRank(newRating);
+    try {
+      console.log(`%c[API] Updating rating - uid: ${uid}, isWin: ${isWin}`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
       
-      await updateUserData(uid, {
-        rating: newRating,
-        rank: newRank
+      // Получим текущие данные пользователя для диагностики
+      const initialUserData = await getUserData(uid);
+      console.log(`%c[SYNC] Initial user data before update:`, 'background: #9C27B0; color: white; padding: 2px 5px; border-radius: 2px;', initialUserData);
+      
+      // Вызов API бэкенда для обновления рейтинга и валюты
+      const response = await fetch(`/api/users/${uid}/rating?isWin=${isWin}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
       });
       
-      return { newRating, newRank };
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`API Error (${response.status}):`, errorText);
+        throw new Error(`Failed to update rating: ${response.status} ${response.statusText}`);
+      }
+      
+      const updatedUser = await response.json();
+      console.log(`%c[API] Rating update successful:`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;', updatedUser);
+      
+      // Рассчитываем заработанные монеты и кристаллы
+      const coinEarned = isWin ? 25 : 5;
+      const gemEarned = isWin ? 1 : 0;
+      
+      // Обеспечиваем согласованность данных в Firestore 
+      // с конкретными значениями полученными от сервера
+      try {
+        await setDoc(doc(db, "users", uid), {
+          rating: updatedUser.rating,
+          rank: updatedUser.rank,
+          coin: updatedUser.coin,
+          gem: updatedUser.gem
+        }, { merge: true });
+        
+        console.log(`%c[SYNC] Successfully updated Firestore with values from API:`, 
+                   'background: #2196F3; color: white; padding: 2px 5px; border-radius: 2px;', {
+          rating: updatedUser.rating,
+          rank: updatedUser.rank,
+          coin: updatedUser.coin,
+          gem: updatedUser.gem
+        });
+        
+        // Проверим, что данные действительно обновились
+        setTimeout(async () => {
+          const verifyData = await getUserData(uid);
+          console.log(`%c[SYNC] Verification data after update:`, 
+                     'background: #9C27B0; color: white; padding: 2px 5px; border-radius: 2px;', verifyData);
+          
+          // Проверка, что данные обновились правильно
+          const coinsUpdated = verifyData.coin === updatedUser.coin;
+          const gemsUpdated = verifyData.gem === updatedUser.gem;
+          
+          console.log(`%c[SYNC] Currency update verification: ${coinsUpdated && gemsUpdated ? 'SUCCESS ✓' : 'FAILED ✗'}`, 
+                     `background: ${coinsUpdated && gemsUpdated ? '#4CAF50' : '#F44336'}; color: white; padding: 2px 5px; border-radius: 2px;`, {
+            expected: { coin: updatedUser.coin, gem: updatedUser.gem },
+            actual: { coin: verifyData.coin, gem: verifyData.gem }
+          });
+        }, 1000);
+      } catch (firestoreError) {
+        console.error("Error updating Firestore:", firestoreError);
+      }
+      
+      // Также обновим локальное состояние для немедленного эффекта в UI
+      setCurrentUser(prev => ({
+        ...prev,
+        rating: updatedUser.rating,
+        rank: updatedUser.rank,
+        coin: updatedUser.coin,
+        gem: updatedUser.gem
+      }));
+      
+      return { 
+        newRating: updatedUser.rating, 
+        newRank: updatedUser.rank,
+        coinEarned,
+        gemEarned,
+        totalCoin: updatedUser.coin,
+        totalGem: updatedUser.gem
+      };
+    } catch (error) {
+      console.error("Error updating user rating:", error);
+      
+      // Для отладки - попробуем прямое обновление Firestore
+      try {
+        if (isWin) {
+          console.log("%c[FALLBACK] Trying direct Firestore update due to API failure", 
+                     'background: #FF9800; color: white; padding: 2px 5px; border-radius: 2px;');
+          
+          const userData = await getUserData(uid);
+          if (userData) {
+            const coinEarned = isWin ? 25 : 5;
+            const gemEarned = isWin ? 1 : 0;
+            
+            const newCoinTotal = (userData.coin || 0) + coinEarned;
+            const newGemTotal = (userData.gem || 0) + gemEarned;
+            
+            console.log("%c[FALLBACK] Updating with direct values:", 
+                       'background: #FF9800; color: white; padding: 2px 5px; border-radius: 2px;', {
+              coin: newCoinTotal,
+              gem: newGemTotal
+            });
+            
+            // Принудительно устанавливаем конкретные значения, а не используем increment
+            await setDoc(doc(db, "users", uid), {
+              coin: newCoinTotal,
+              gem: newGemTotal
+            }, { merge: true });
+            
+            // Обновляем локальное состояние
+            setCurrentUser(prev => ({
+              ...prev,
+              coin: newCoinTotal,
+              gem: newGemTotal
+            }));
+            
+            return {
+              coinEarned,
+              gemEarned,
+              totalCoin: newCoinTotal,
+              totalGem: newGemTotal
+            };
+          }
+        }
+      } catch (fallbackError) {
+        console.error("%c[FALLBACK] Fallback update also failed:", 
+                     'background: #F44336; color: white; padding: 2px 5px; border-radius: 2px;', 
+                     fallbackError);
+      }
+      
+      return null;
     }
-    return null;
   }
-
+  // Обновление игровой валюты пользователя
+  async function updateCurrency(uid, { addCoins = 0, addGems = 0 }) {
+    try {
+      // Вызов API бэкенда для обновления валюты
+      const response = await fetch(`/api/users/${uid}/currency?addCoins=${addCoins}&addGems=${addGems}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to update currency: ${response.statusText}`);
+      }
+      
+      const updatedUser = await response.json();
+      
+      // Обновление локального состояния пользователя
+      setCurrentUser(prev => ({
+        ...prev,
+        coin: updatedUser.coin,
+        gem: updatedUser.gem
+      }));
+      
+      return { 
+        coinChange: addCoins,
+        gemChange: addGems,
+        totalCoin: updatedUser.coin,
+        totalGem: updatedUser.gem
+      };
+    } catch (error) {
+      console.error("Error updating user currency:", error);
+      return null;
+    }
+  }
+    // Добавление предмета в инвентарь пользователя
+  async function addToInventory(uid, itemId) {
+    try {
+      // Вызов API бэкенда для добавления предмета в инвентарь
+      const response = await fetch(`/api/users/${uid}/inventory?itemId=${itemId}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to add item to inventory: ${response.statusText}`);
+      }
+      
+      const updatedUser = await response.json();
+      
+      // Обновление локального состояния пользователя
+      setCurrentUser(prev => ({
+        ...prev,
+        inventory: updatedUser.inventory
+      }));
+      
+      return { 
+        success: true, 
+        inventory: updatedUser.inventory 
+      };
+    } catch (error) {
+      console.error("Error adding item to inventory:", error);
+      return { 
+        success: false, 
+        message: error.message || "Ошибка при добавлении предмета в инвентарь" 
+      };
+    }
+  }
+    // Проверка наличия предмета у пользователя
+  async function hasItem(itemId) {
+    try {
+      if (!currentUser || !currentUser.uid) {
+        return false;
+      }
+      
+      // Используем локальное состояние для быстрой проверки
+      if (currentUser.inventory && Array.isArray(currentUser.inventory)) {
+        return currentUser.inventory.includes(itemId);
+      }
+      
+      // Если локальных данных нет, запрашиваем с сервера
+      const response = await fetch(`/api/users/${currentUser.uid}/inventory/${itemId}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Failed to check item in inventory: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      return result; // Сервер вернет true или false
+    } catch (error) {
+      console.error("Error checking item in inventory:", error);
+      return false;
+    }
+  }
   // Слушатель изменения состояния аутентификации
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    let userDocUnsubscribe = null;
+    
+    const authUnsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
+        // Первичная загрузка данных пользователя
         const userData = await getUserData(user.uid);
         setCurrentUser({ ...user, ...userData });
+        setLoading(false);
+        
+        // Настройка real-time listener для документа пользователя
+        const userDocRef = doc(db, "users", user.uid);
+        userDocUnsubscribe = onSnapshot(userDocRef, (doc) => {
+          if (doc.exists()) {
+            const userData = doc.data();
+            console.log("%c[REALTIME] Firestore document update received:", 
+                       "background: #009688; color: white; padding: 2px 5px; border-radius: 2px;", userData);
+            
+            // Сохраняем предыдущие значения для сравнения
+            let prevValues = {};
+            if (currentUser) {
+              prevValues = {
+                coin: currentUser.coin,
+                gem: currentUser.gem,
+                rating: currentUser.rating,
+                rank: currentUser.rank
+              };
+            }
+            
+            // Обновляем только состояние пользователя, сохраняя свойства Firebase Auth
+            setCurrentUser(prevUser => {
+              const updatedUser = {
+                ...prevUser,
+                ...userData
+              };
+              
+              // Логируем изменения в важных полях
+              const changes = {};
+              if (prevValues.coin !== userData.coin) changes.coin = `${prevValues.coin} → ${userData.coin}`;
+              if (prevValues.gem !== userData.gem) changes.gem = `${prevValues.gem} → ${userData.gem}`;
+              if (prevValues.rating !== userData.rating) changes.rating = `${prevValues.rating} → ${userData.rating}`;
+              if (prevValues.rank !== userData.rank) changes.rank = `${prevValues.rank} → ${userData.rank}`;
+              
+              if (Object.keys(changes).length > 0) {
+                console.log("%c[REALTIME] User state updated:", 
+                           "background: #009688; color: white; padding: 2px 5px; border-radius: 2px;", changes);
+              }
+              
+              return updatedUser;
+            });
+          }
+        }, (error) => {
+          console.error("Error in user document listener:", error);
+        });
       } else {
         setCurrentUser(null);
+        setLoading(false);
+        
+        // Отписываемся от слушателя документа, если пользователь вышел
+        if (userDocUnsubscribe) {
+          userDocUnsubscribe();
+          userDocUnsubscribe = null;
+        }
       }
-      setLoading(false);
     });
 
-    return unsubscribe;  }, []); 
+    // Очистка слушателей при размонтировании
+    return () => {
+      authUnsubscribe();
+      if (userDocUnsubscribe) {
+        userDocUnsubscribe();
+      }
+    };
+  }, []);
   
   // Получение списка персонажей из Firebase Storage
   async function getCharacters() {
@@ -182,7 +466,7 @@ export function AuthProvider({ children }) {
           try {
           const imageUrl = await getDownloadURL(idleImageRef);
           // Для превью персонажа в меню используем URL из Firebase Storage
-          // Для персонажа в игре это URL не будет использоваться, 
+          // Для персонада в игре это URL не будет использоваться, 
           // вместо этого будут использоваться локальные пути
           characters.push({
             id: dir,
@@ -201,8 +485,210 @@ export function AuthProvider({ children }) {
       console.error('Ошибка при получении списка персонажей:', error);
       return [];
     }
+  }  // Получение статистики персонажа из Firebase
+  async function getCharacterStats(characterId) {
+    try {
+      const statsDoc = await getDoc(doc(db, "characters", characterId));
+      if (statsDoc.exists()) {
+        return statsDoc.data();
+      }
+      
+      // Если статистики нет в базе, используем значения по умолчанию
+      const defaultStats = {
+        attack: 5,
+        defense: 5,
+        speed: 5
+      };
+      
+      // Сохраняем значения по умолчанию в базу
+      await setDoc(doc(db, "characters", characterId), defaultStats);
+      return defaultStats;
+    } catch (error) {
+      console.error("Error getting character stats:", error);
+      return {
+        attack: 5,
+        defense: 5,
+        speed: 5
+      };
+    }
   }
 
+  // Обновление статистики персонажа
+  async function updateCharacterStats(characterId, stats) {
+    try {
+      await setDoc(doc(db, "characters", characterId), stats, { merge: true });
+      return true;
+    } catch (error) {
+      console.error("Error updating character stats:", error);
+      return false;
+    }
+  }
+
+  // Инициализация статистики персонажей при первом запуске
+  async function initializeCharacterStats() {
+    try {
+      const defaultStats = {
+        character1: {
+          name: 'Самурай',
+          attack: 8,
+          defense: 7,
+          speed: 5
+        },
+        character2: {
+          name: 'Рыцарь',
+          attack: 7,
+          defense: 8,
+          speed: 4
+        },
+        player3: {
+          name: 'Злой Волшебник',
+          attack: 10,
+          defense: 3,
+          speed: 6
+        },
+        character3: {
+          name: 'Ниндзя',
+          attack: 9,
+          defense: 5,
+          speed: 10
+        },
+        character4: {
+          name: 'Маг',
+          attack: 10,
+          defense: 3,
+          speed: 6
+        }
+      };
+
+      // Проверяем и инициализируем статистику для каждого персонажа
+      for (const [characterId, stats] of Object.entries(defaultStats)) {
+        const statsDoc = await getDoc(doc(db, "characters", characterId));
+        if (!statsDoc.exists()) {
+          await setDoc(doc(db, "characters", characterId), stats);
+          console.log(`Initialized stats for ${stats.name}`);
+        }
+      }
+    } catch (error) {
+      console.error("Error initializing character stats:", error);
+    }
+  }
+
+  // Room management functions for online play
+  async function createRoom(roomId, hostId, hostName, hostCharacter) {
+    try {
+      const timestamp = new Date().toISOString();
+      const roomData = {
+        roomId,
+        hostId,
+        hostName,
+        hostCharacter,
+        hostReady: true,
+        guestId: null,
+        guestName: null,
+        guestCharacter: null,
+        guestReady: false,
+        status: 'waiting', // waiting, playing, completed
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        localIp: await getLocalIp()
+      };
+      
+      await setDoc(doc(db, "rooms", roomId), roomData);
+      console.log(`Room created: ${roomId}`);
+      return roomData;
+    } catch (error) {
+      console.error("Error creating room:", error);
+      throw error;
+    }
+  }
+
+  async function joinRoom(roomId, guestId, guestName, guestCharacter) {
+    try {
+      const roomRef = doc(db, "rooms", roomId);
+      const roomDoc = await getDoc(roomRef);
+      
+      if (!roomDoc.exists()) {
+        throw new Error("Room not found");
+      }
+      
+      const roomData = roomDoc.data();
+      if (roomData.status !== 'waiting') {
+        throw new Error("Room is not available for joining");
+      }
+      
+      const timestamp = new Date().toISOString();
+      await setDoc(roomRef, {
+        guestId,
+        guestName,
+        guestCharacter,
+        guestReady: true,
+        status: 'playing',
+        updatedAt: timestamp
+      }, { merge: true });
+      
+      console.log(`Joined room: ${roomId}`);
+      return { ...roomData, guestId, guestName, guestCharacter, guestReady: true };
+    } catch (error) {
+      console.error("Error joining room:", error);
+      throw error;
+    }
+  }
+
+  async function getRoomData(roomId) {
+    try {
+      const roomDoc = await getDoc(doc(db, "rooms", roomId));
+      if (roomDoc.exists()) {
+        return roomDoc.data();
+      }
+      return null;
+    } catch (error) {
+      console.error("Error getting room data:", error);
+      return null;
+    }
+  }
+    function listenToRoom(roomId, callback) {
+    const roomRef = doc(db, "rooms", roomId);
+    const unsubscribe = onSnapshot(roomRef, (doc) => {
+      if (doc.exists()) {
+        callback(doc.data());
+      } else {
+        callback(null);
+      }
+    }, (error) => {
+      console.error("Error listening to room:", error);
+    });
+    
+    return unsubscribe;
+  }
+    async function updateRoomStatus(roomId, statusOrData) {
+    try {
+      const timestamp = new Date().toISOString();
+      
+      // Handle both string status or object with multiple fields
+      const updateData = typeof statusOrData === 'string' 
+        ? { status: statusOrData, updatedAt: timestamp }
+        : { ...statusOrData, updatedAt: timestamp };
+      
+      await setDoc(doc(db, "rooms", roomId), updateData, { merge: true });
+      return true;
+    } catch (error) {
+      console.error("Error updating room status:", error);
+      return false;
+    }
+  }
+  
+  // Helper function to get local IP address
+  async function getLocalIp() {
+    try {
+      // Use a public API to get the client's local IP
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      return data.ip;
+    } catch (error) {
+      console.error("Error getting local IP:", error);
+      return 'unknown';
+    }
+  }
   const value = {
     currentUser,
     register,
@@ -211,7 +697,19 @@ export function AuthProvider({ children }) {
     getUserData,
     updateUserData,
     updateRating,
-    getCharacters
+    updateCurrency,
+    addToInventory,
+    hasItem,
+    getCharacters,
+    getCharacterStats,
+    updateCharacterStats,
+    initializeCharacterStats,
+    createRoom,
+    joinRoom,
+    getRoomData,
+    listenToRoom,
+    updateRoomStatus,
+    getLocalIp
   };
 
   return (

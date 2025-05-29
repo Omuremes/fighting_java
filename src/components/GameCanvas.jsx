@@ -5,7 +5,7 @@ import { useSprites } from '../contexts/SpritesContext';
 const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharacter }) => {
   const { getCharacterSpritePath, getHitAnimationPath, checkSpriteExists, preloadAnimation } = useSprites();
   
-  // Character stats references
+  // Character stats references from Firebase
   const player1Stats = useRef({
     attack: playerCharacter?.stats?.attack || 5,
     defense: playerCharacter?.stats?.defense || 5,
@@ -17,6 +17,27 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
     defense: opponentCharacter?.stats?.defense || 5,
     speed: opponentCharacter?.stats?.speed || 5
   });
+  
+  // Update stats when character data changes
+  useEffect(() => {
+    if (playerCharacter?.stats) {
+      player1Stats.current = {
+        attack: playerCharacter.stats.attack,
+        defense: playerCharacter.stats.defense,
+        speed: playerCharacter.stats.speed
+      };
+      console.log('Updated Player 1 stats:', player1Stats.current);
+    }
+    
+    if (opponentCharacter?.stats) {
+      player2Stats.current = {
+        attack: opponentCharacter.stats.attack,
+        defense: opponentCharacter.stats.defense,
+        speed: opponentCharacter.stats.speed
+      };
+      console.log('Updated Player 2 stats:', player2Stats.current);
+    }
+  }, [playerCharacter, opponentCharacter]);
   
   // Player refs and state management
   const canvasRef = useRef(null);
@@ -590,12 +611,26 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       ctx.restore();
     };    // Combat system
     // Base damage will be modified by attack and defense stats
-    const BASE_ATTACK_DAMAGE = 7;
-
-    function getHitbox(player, width = 40, height = 120) {
+    const BASE_ATTACK_DAMAGE = 7;    function getHitbox(player, width = 40, height = 120) {
       const offset = 150;
+      
+      // Adjust hitbox based on current animation
+      let attackOffset = 0;
+      
+      // If the player is attacking, extend the hitbox range
+      if (player.currentAnimation && player.currentAnimation.startsWith('attack')) {
+        // Create larger hitbox during the middle frames of the attack animation
+        const frameRatio = player.currentFrame / player.frameCount;
+        if (frameRatio > 0.3 && frameRatio < 0.7) {
+          width += 15;
+          attackOffset = player.facing === 'right' ? 20 : 0;
+        }
+      }
+      
       return {
-        x: player.position.x + (player.facing === 'right' ? player.width - width - offset : offset),
+        x: player.position.x + (player.facing === 'right' ? 
+            player.width - width - offset + attackOffset : 
+            offset - attackOffset),
         y: player.position.y + player.height - height,
         width,
         height
@@ -620,55 +655,89 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
     
     // Calculate damage based on attacker's attack and defender's defense stats
     function calculateDamage(attackerStats, defenderStats) {
-      const attackPower = attackerStats.attack;
-      const defensePower = defenderStats.defense;
+      // Базовый урон
+      const BASE_DAMAGE = 7;
       
-      // Formula: Base damage + (attack stat - defense stat/2)
-      // This ensures defense reduces damage but doesn't nullify it entirely
-      let damage = BASE_ATTACK_DAMAGE + (attackPower - defensePower/2);
+      // Коэффициент атаки (от 0.8 до 1.5)
+      const attackMultiplier = 0.8 + (attackerStats.attack * 0.07);
       
-      // Ensure minimum damage is at least 5
-      damage = Math.max(5, damage);
+      // Коэффициент защиты (от 0.5 до 0.9)
+      const defenseMultiplier = 1 - (defenderStats.defense * 0.05);
       
-      // Add slight randomness (-1 to +1)
-      damage += (Math.random() * 2) - 1;
+      // Случайный множитель для небольшой вариации урона (0.9 - 1.1)
+      const randomMultiplier = 0.9 + Math.random() * 0.2;
       
-      return Math.round(damage);
+      // Итоговый расчет урона
+      const damage = Math.round(BASE_DAMAGE * attackMultiplier * defenseMultiplier * randomMultiplier);
+      
+      console.log('Combat calculation:', {
+        attacker: attackerStats,
+        defender: defenderStats,
+        baseDamage: BASE_DAMAGE,
+        attackMult: attackMultiplier,
+        defenseMult: defenseMultiplier,
+        randomMult: randomMultiplier,
+        finalDamage: damage
+      });
+      
+      // Гарантируем минимальный урон
+      return Math.max(damage, 1);
     }
     
-    function checkAttackHit(attacker, defender, baseDamage) {
-      const hitbox = getHitbox(attacker);
-      const targetBox = getBodyBox(defender);      if (isColliding(hitbox, targetBox)) {
-        // Only switch to hit animation if we're not dead
-        if (defender.currentAnimation !== 'death') {
-          // If already in hit animation, reset it to start from beginning
-          if (defender.currentAnimation === 'getHit') {
-            defender.resetAnimation();
-          } else {
-            // Otherwise switch to hit animation
-            defender.switchAnimation('getHit');
-          }
-          
-          // Flag to track this specific hit animation
-          if (defender === player1Ref.current) {
-            player1Attack.current.wasHit = true;
-          } else {
-            player2Attack.current.wasHit = true;
-          }
-        }
-        
-        // Calculate damage based on attacker and defender stats
+    function checkAttackHit(attacker, defender, attackType) {
+      // First, check if attack hitbox collides with defender's body box
+      const attackHitbox = getHitbox(attacker);
+      const defenderBodyBox = getBodyBox(defender);
+      
+      const isInRange = isColliding(attackHitbox, defenderBodyBox);
+      
+      // If not in range, attack misses automatically
+      if (!isInRange) {
+        console.log('Attack missed: not in range');
+        return 0;
+      }
+      
+      // Get stats
+      const attackerSpeed = attacker === player1Ref.current ? player1Stats.current.speed : player2Stats.current.speed;
+      const defenderSpeed = defender === player1Ref.current ? player1Stats.current.speed : player2Stats.current.speed;
+      
+      // Calculate hit chance based on speed difference
+      const speedDifference = attackerSpeed - defenderSpeed;
+      const baseHitChance = 0.8 + (speedDifference * 0.03);
+      
+      // Add some randomness to the hit chance
+      const roll = Math.random();
+      const didHit = roll <= baseHitChance;
+      
+      console.log('Attack calculation:', {
+        attackerSpeed,
+        defenderSpeed,
+        speedDifference,
+        baseHitChance,
+        roll,
+        didHit,
+        isInRange
+      });
+      
+      if (didHit) {
+        // Calculate damage with enhanced attack types
         const attackerStats = attacker === player1Ref.current ? player1Stats.current : player2Stats.current;
         const defenderStats = defender === player1Ref.current ? player1Stats.current : player2Stats.current;
-        const calculatedDamage = calculateDamage(attackerStats, defenderStats);
         
-        handleGameEvent('damage', {
-          target: defender === player1Ref.current ? 'player1' : 'player2',
-          amount: calculatedDamage
-        });
-        return true;
+        // Different attack types can have different damage modifiers
+        let attackModifier = 1.0;
+        if (attackType === 'attack2') {
+          attackModifier = 1.2; // Heavy attack does more damage
+        }
+        
+        const damage = calculateDamage(attackerStats, defenderStats) * attackModifier;
+        
+        console.log(`Attack hit! Damage: ${damage}`);
+        return Math.round(damage);
       }
-      return false;
+      
+      console.log('Attack missed: dodge');
+      return 0;
     }
 
     const animate = () => {
@@ -1091,16 +1160,70 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       }      if (e.code === 'KeyE' && player1Ref.current && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack1');
         player1Attack.current = { inProgress: true, type: 'attack1' };
-        if (player2Ref.current && checkAttackHit(player1Ref.current, player2Ref.current)) {
-          onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack1', hit: true });
+        
+        // Check if attack hits and apply damage
+        if (player2Ref.current) {
+          const damage = checkAttackHit(player1Ref.current, player2Ref.current, 'attack1');
+          if (damage > 0) {
+            // Apply damage to player 2
+            player2Health.current = Math.max(0, player2Health.current - damage);
+            player2Ref.current.switchAnimation('getHit');
+            player2Attack.current.wasHit = true;
+            
+            // Notify about the hit
+            onPlayerAction?.({ 
+              type: 'attack', 
+              player: 'player1', 
+              attackType: 'attack1', 
+              hit: true,
+              damage: damage
+            });
+            
+            // Trigger damage event
+            handleGameEvent('damage', { 
+              target: 'player2', 
+              amount: damage, 
+              source: 'player1',
+              attackType: 'attack1'
+            });
+          } else {
+            onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack1', hit: false });
+          }
         }
       }      if (e.code === 'KeyQ' && player1Ref.current && !player1Attack.current.inProgress) {
         player1Ref.current.switchAnimation('attack2');
         player1Attack.current = { inProgress: true, type: 'attack2' };
-        if (player2Ref.current && checkAttackHit(player1Ref.current, player2Ref.current)) {
-          onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack2', hit: true });
+        
+        // Check if attack hits and apply damage
+        if (player2Ref.current) {
+          const damage = checkAttackHit(player1Ref.current, player2Ref.current, 'attack2');
+          if (damage > 0) {
+            // Apply damage to player 2
+            player2Health.current = Math.max(0, player2Health.current - damage);
+            player2Ref.current.switchAnimation('getHit');
+            player2Attack.current.wasHit = true;
+            
+            // Notify about the hit
+            onPlayerAction?.({ 
+              type: 'attack', 
+              player: 'player1', 
+              attackType: 'attack2', 
+              hit: true,
+              damage: damage
+            });
+            
+            // Trigger damage event
+            handleGameEvent('damage', { 
+              target: 'player2', 
+              amount: damage, 
+              source: 'player1',
+              attackType: 'attack2'
+            });
+          } else {
+            onPlayerAction?.({ type: 'attack', player: 'player1', attackType: 'attack2', hit: false });
+          }
         }
-      }      // Player 2 controls
+      }// Player 2 controls
       if (e.code === 'ArrowLeft' && player2Ref.current) {
         keys.player2.left = true;
         player2Ref.current.switchAnimation('run');
@@ -1120,14 +1243,68 @@ const GameCanvas = ({ gameMode, onPlayerAction, playerCharacter, opponentCharact
       }      if (e.code === 'KeyK' && player2Ref.current && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack1');
         player2Attack.current = { inProgress: true, type: 'attack1' };
-        if (player1Ref.current && checkAttackHit(player2Ref.current, player1Ref.current)) {
-          onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack1', hit: true });
+        
+        // Check if attack hits and apply damage
+        if (player1Ref.current) {
+          const damage = checkAttackHit(player2Ref.current, player1Ref.current, 'attack1');
+          if (damage > 0) {
+            // Apply damage to player 1
+            player1Health.current = Math.max(0, player1Health.current - damage);
+            player1Ref.current.switchAnimation('getHit');
+            player1Attack.current.wasHit = true;
+            
+            // Notify about the hit
+            onPlayerAction?.({ 
+              type: 'attack', 
+              player: 'player2', 
+              attackType: 'attack1', 
+              hit: true,
+              damage: damage 
+            });
+            
+            // Trigger damage event
+            handleGameEvent('damage', { 
+              target: 'player1', 
+              amount: damage, 
+              source: 'player2',
+              attackType: 'attack1'
+            });
+          } else {
+            onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack1', hit: false });
+          }
         }
       }      if (e.code === 'KeyL' && player2Ref.current && !player2Attack.current.inProgress) {
         player2Ref.current.switchAnimation('attack2');
         player2Attack.current = { inProgress: true, type: 'attack2' };
-        if (player1Ref.current && checkAttackHit(player2Ref.current, player1Ref.current)) {
-          onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack2', hit: true });
+        
+        // Check if attack hits and apply damage
+        if (player1Ref.current) {
+          const damage = checkAttackHit(player2Ref.current, player1Ref.current, 'attack2');
+          if (damage > 0) {
+            // Apply damage to player 1
+            player1Health.current = Math.max(0, player1Health.current - damage);
+            player1Ref.current.switchAnimation('getHit');
+            player1Attack.current.wasHit = true;
+            
+            // Notify about the hit
+            onPlayerAction?.({ 
+              type: 'attack', 
+              player: 'player2', 
+              attackType: 'attack2', 
+              hit: true,
+              damage: damage
+            });
+            
+            // Trigger damage event
+            handleGameEvent('damage', { 
+              target: 'player1', 
+              amount: damage, 
+              source: 'player2',
+              attackType: 'attack2'
+            });
+          } else {
+            onPlayerAction?.({ type: 'attack', player: 'player2', attackType: 'attack2', hit: false });
+          }
         }
       }
     };    const handleKeyUp = (e) => {

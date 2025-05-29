@@ -4,16 +4,17 @@ import { useAuth } from '../contexts/AuthContext';
 import CharacterSelect from '../components/CharacterSelect';
 
 const Menu = () => {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, logout, createRoom, getRoomData } = useAuth();
   const navigate = useNavigate();
   const [gameMode, setGameMode] = useState(null);
   const [roomCode, setRoomCode] = useState('');
+  const [hostIp, setHostIp] = useState('');
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [pendingGameMode, setPendingGameMode] = useState(null);
   const [selectingPlayerNumber, setSelectingPlayerNumber] = useState(1); // Какой игрок выбирает персонажа (1 или 2)
-  const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого игрока
+  const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого иг��ока
   const [player2Character, setPlayer2Character] = useState(null); // Персонаж второго игрока
 
   useEffect(() => {
@@ -27,12 +28,13 @@ const Menu = () => {
     setPendingGameMode('single-player');
     setShowCharacterSelect(true);
   };
-
   const handleStartTwoPlayers = () => {
     // Показываем выбор персонажа перед началом игры
     setPendingGameMode('two-players');
     setShowCharacterSelect(true);
-  };    const handleCharacterSelect = (character) => {
+  };
+  
+  const handleCharacterSelect = async (character) => {
     if (pendingGameMode === 'two-players') {
       // Для двух игроков на одном устройстве
       if (selectingPlayerNumber === 1) {
@@ -73,21 +75,77 @@ const Menu = () => {
     if (pendingGameMode === 'single-player') {
       navigate('/game/single-player', { state: { character } });
     } else if (pendingGameMode === 'online') {
-      // Для онлайн режима создаем комнату с информацией о выбранном персонаже
+      // Для онлайн режима создаем комнату с информацией о выбранном персонаже в Firebase
       const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      navigate(`/game/online/host/${newRoomCode}`, { state: { character } });
+      
+      try {
+        await createRoom(
+          newRoomCode, 
+          currentUser.uid, 
+          currentUser.name || currentUser.email, 
+          character
+        );
+        
+        // Переходим в комнату с созданным кодом
+        navigate(`/game/online/host/${newRoomCode}`, { 
+          state: { 
+            character,
+            isHost: true 
+          } 
+        });
+      } catch (error) {
+        console.error('Error creating room:', error);
+        alert('Ошибка при создании комнаты. Пожалуйста, попробуйте еще раз.');
+      }
+    } else if (pendingGameMode === 'join-room') {
+      // Для присоединения к комнате
+      try {
+        // Переходим в комнату с выбранным персонажем и IP хоста
+        navigate(`/game/online/join/${roomCode}`, { 
+          state: { 
+            character,
+            isHost: false,
+            hostIp: hostIp // Передаем IP хоста для подключения
+          } 
+        });
+      } catch (error) {
+        console.error('Error joining room:', error);
+        alert('Ошибка при присоединении к комнате. Пожалуйста, проверьте код комнаты и IP адрес хоста, затем попробуйте еще раз.');
+      }
     }
   };
+
   const handleCreateRoom = () => {
     // Показываем выбор персонажа перед созданием комнаты
     setPendingGameMode('online');
     setShowCharacterSelect(true);
   };
-  const handleJoinRoom = () => {
+  
+  const handleJoinRoom = async () => {
     if (roomCode) {
-      // Показываем выбор персонажа перед присоединением к комнате
-      setPendingGameMode('join-room');
-      setShowCharacterSelect(true);
+      try {
+        // Проверяем существование комнаты перед выбором персонажа
+        const roomData = await getRoomData(roomCode);
+        
+        if (!roomData) {
+          alert('Комната не найдена. Проверьте код комнаты и попробуйте еще раз.');
+          return;
+        }
+        
+        if (roomData.status !== 'waiting') {
+          alert('Невозможно присоединиться к комнате. Игра уже началась или комната закрыта.');
+          return;
+        }
+        
+        // Показываем выбор персонажа перед присоединением к комнате
+        setPendingGameMode('join-room');
+        setShowCharacterSelect(true);
+      } catch (error) {
+        console.error('Error checking room:', error);
+        alert('Ошибка при проверке комнаты. Пожалуйста, попробуйте еще раз.');
+      }
+    } else {
+      alert('Пожалуйста, введите код комнаты.');
     }
   };
 
@@ -98,8 +156,7 @@ const Menu = () => {
     } catch (error) {
       console.error('Ошибка при выходе:', error);
     }
-  };
-  const renderGameModeSelection = () => {
+  };  const renderGameModeSelection = () => {
     return (
       <div className="grid grid-cols-1 gap-6 mt-8">
         <button
@@ -119,6 +176,12 @@ const Menu = () => {
           className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-6 px-8 rounded-lg text-xl transition-colors"
         >
           Онлайн игра (рейтинговая)
+        </button>
+        <button
+          onClick={() => navigate('/shop')}
+          className="bg-yellow-600 hover:bg-yellow-700 text-white font-bold py-6 px-8 rounded-lg text-xl transition-colors"
+        >
+          Магазин
         </button>
       </div>
     );
@@ -168,11 +231,18 @@ const Menu = () => {
             Назад
           </button>
         </div>
-      );
-    } else if (gameMode === 'online') {
+      );    } else if (gameMode === 'online') {
       return (
         <div className="mt-8 space-y-6">
           <h2 className="text-2xl font-bold text-white">Онлайн игра</h2>
+          
+          <div className="bg-blue-900 p-4 rounded-lg">
+            <h3 className="font-semibold text-white text-lg mb-2">Локальное подключение</h3>
+            <p className="text-gray-300 text-sm">
+              Для игры по локальной сети один игрок создает комнату, а второй подключается к ней, 
+              используя код комнаты и IP-адрес хоста.
+            </p>
+          </div>
           
           {isJoiningRoom ? (
             <div className="space-y-4">
@@ -189,6 +259,22 @@ const Menu = () => {
                   placeholder="Введите код комнаты"
                   maxLength={6}
                 />
+              </div>
+              
+              <div className="bg-gray-700 p-4 rounded-lg">
+                <label htmlFor="hostIp" className="block text-white text-sm font-medium mb-2">
+                  IP адрес хоста (локальный)
+                </label>
+                <input
+                  type="text"
+                  id="hostIp"
+                  className="w-full p-2 bg-gray-800 text-white border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  onChange={(e) => setHostIp(e.target.value)}
+                  placeholder="Например: 192.168.1.100"
+                />
+                <p className="mt-2 text-sm text-gray-400">
+                  Введите локальный IP-адрес компьютера, на котором создана комната
+                </p>
               </div>
               <button
                 onClick={handleJoinRoom}
@@ -213,13 +299,13 @@ const Menu = () => {
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-6 rounded-lg transition-colors"
               >
                 Создать комнату
-              </button>
-              <button
+              </button>              <button
                 onClick={() => setIsJoiningRoom(true)}
                 className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 px-6 rounded-lg transition-colors"
               >
                 Присоединиться к комнате
-              </button>          <button
+              </button>
+              <button
                 onClick={() => setGameMode(null)}
                 className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
               >
@@ -232,14 +318,27 @@ const Menu = () => {
     } 
     
     return null;
-  };
-  return (
+  };  return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col">
       <header className="bg-gray-800 py-4 px-6 flex justify-between items-center">
         <h1 className="text-2xl font-bold">Файтинг-игра</h1>
         <div className="flex items-center space-x-4">
           {currentUser && (
-            <>
+            <>              <div className="flex items-center mr-4" onClick={() => navigate('/shop')} style={{ cursor: 'pointer' }}>
+                <div className="flex items-center bg-yellow-700 px-3 py-1 rounded-md mr-2 hover:bg-yellow-600 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-yellow-400 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-yellow-400 font-bold">{currentUser.coin || 0}</span>
+                </div>
+                <div className="flex items-center bg-purple-900 px-3 py-1 rounded-md hover:bg-purple-800 transition-colors">
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-purple-400 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-purple-400 font-bold">{currentUser.gem || 0}</span>
+                </div>
+                <div className="ml-1 text-xs text-gray-400">Нажмите для перехода в магазин</div>
+              </div>
               <div className="text-right">
                 <p className="font-medium">{currentUser.name}</p>
                 <p className="text-sm text-gray-400">
@@ -254,10 +353,10 @@ const Menu = () => {
               </button>
             </>
           )}
-        </div>
-      </header>
+        </div>      </header>
       
-      <main className="flex-1 container mx-auto max-w-3xl py-12 px-6 text-center">        {showCharacterSelect ? (
+      <main className="flex-1 container mx-auto max-w-3xl py-12 px-6 text-center">
+        {showCharacterSelect ? (
           <>
             {pendingGameMode === 'two-players' && (
               <div className="bg-gray-700 p-3 rounded-lg mb-4 flex justify-between items-center">

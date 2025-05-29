@@ -1,22 +1,30 @@
 package com.example.model;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class User {
     private String id;
     private String name;
     private String email;
     private int rating;
     private String rank;
+    private int coin;
+    private int gem;
+    private List<String> inventory;
     
     public User() {
         // Пустой конструктор для Firebase
     }
-    
-    public User(String id, String name, String email) {
+      public User(String id, String name, String email) {
         this.id = id;
         this.name = name;
         this.email = email;
         this.rating = 100; // Начальный рейтинг
         this.rank = "Бронза"; // Начальный ранг
+        this.coin = 100; // Начальное количество монет
+        this.gem = 5;   // Начальное количество кристаллов
+        this.inventory = new ArrayList<>(); // Пустой инвентарь
     }
     
     // Getters and Setters
@@ -56,9 +64,47 @@ public class User {
     public String getRank() {
         return rank;
     }
-    
-    public void setRank(String rank) {
+      public void setRank(String rank) {
         this.rank = rank;
+    }
+    
+    public int getCoin() {
+        return coin;
+    }
+    
+    public void setCoin(int coin) {
+        this.coin = coin;
+    }
+    
+    public int getGem() {
+        return gem;
+    }
+      public void setGem(int gem) {
+        this.gem = gem;
+    }
+    
+    public List<String> getInventory() {
+        if (inventory == null) {
+            inventory = new ArrayList<>();
+        }
+        return inventory;
+    }
+    
+    public void setInventory(List<String> inventory) {
+        this.inventory = inventory;
+    }
+    
+    public void addToInventory(String itemId) {
+        if (inventory == null) {
+            inventory = new ArrayList<>();
+        }
+        if (!inventory.contains(itemId)) {
+            inventory.add(itemId);
+        }
+    }
+    
+    public boolean hasItem(String itemId) {
+        return inventory != null && inventory.contains(itemId);
     }
     
     // Обновление ранга на основе рейтинга

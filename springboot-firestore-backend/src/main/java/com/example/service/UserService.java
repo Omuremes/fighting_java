@@ -70,8 +70,7 @@ public class UserService {
         
         return users;
     }
-    
-    // Обновление пользователя
+      // Обновление пользователя
     public String updateUser(User user) throws ExecutionException, InterruptedException {
         if (user.getId() == null) {
             throw new IllegalArgumentException("User ID cannot be null for update");
@@ -93,10 +92,42 @@ public class UserService {
             throw new IllegalArgumentException("User not found");
         }
         
+        // Обновление рейтинга
         int ratingChange = isWin ? 15 : -10;
         int newRating = Math.max(0, user.getRating() + ratingChange);
-        
         user.setRating(newRating);
+        
+        // Обновление игровой валюты
+        int coinChange = isWin ? 25 : 5;  // 25 монет за победу, 5 за участие
+        int gemChange = isWin ? 1 : 0;    // 1 кристалл за победу
+        
+        int currentCoins = user.getCoin();
+        int currentGems = user.getGem();
+        
+        user.setCoin(currentCoins + coinChange);
+        user.setGem(currentGems + gemChange);
+        
+        // Сохранение обновленных данных пользователя
+        updateUser(user);
+        
+        return user;
+    }
+    
+    // Обновление игровой валюты пользователя
+    public User updateCurrency(String userId, int coinChange, int gemChange) throws ExecutionException, InterruptedException {
+        User user = getUser(userId);
+        
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        int currentCoins = user.getCoin();
+        int currentGems = user.getGem();
+        
+        user.setCoin(Math.max(0, currentCoins + coinChange));
+        user.setGem(Math.max(0, currentGems + gemChange));
+        
+        // Сохранение обновленных данных пользователя
         updateUser(user);
         
         return user;
@@ -108,5 +139,32 @@ public class UserService {
         result.get();
         
         return userId;
+    }
+    
+    // Добавление предмета в инвентарь
+    public User addToInventory(String userId, String itemId) throws ExecutionException, InterruptedException {
+        User user = getUser(userId);
+        
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        user.addToInventory(itemId);
+        
+        // Сохранение обновленных данных пользователя
+        updateUser(user);
+        
+        return user;
+    }
+    
+    // Проверка наличия предмета в инвентаре
+    public boolean hasItem(String userId, String itemId) throws ExecutionException, InterruptedException {
+        User user = getUser(userId);
+        
+        if (user == null) {
+            throw new IllegalArgumentException("User not found");
+        }
+        
+        return user.hasItem(itemId);
     }
 }

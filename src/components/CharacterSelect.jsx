@@ -7,7 +7,7 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
   const [selectedCharacterId, setSelectedCharacterId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [spriteErrors, setSpriteErrors] = useState({});
-  const { getCharacters } = useAuth();
+  const { getCharacters, getCharacterStats, initializeCharacterStats } = useAuth();
   const { checkSpriteExists, getCharacterSpritePath, debugSpritePaths } = useSprites();
   
   // Function to verify a character's sprites
@@ -27,8 +27,7 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
     const results = {};
     
     console.log(`Verifying animations for ${character.name}...`);
-    
-    for (const anim of animations) {
+      for (const anim of animations) {
       const img = new Image();
       const imgPath = `${spritePath}${anim}.png`;
       
@@ -62,27 +61,38 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
     const loadCharacters = async () => {
       try {
         setLoading(true);
+        
+        // Инициализируем статистику персонажей при первой загрузке
+        await initializeCharacterStats();
+        
         const charactersList = await getCharacters();
         
-        // Проверяем наличие спрайтов для каждого персонажа, используя правильные пути
-        const charactersWithValidation = await Promise.all(
+        // Загружаем статистику для каждого персонажа
+        const charactersWithStats = await Promise.all(
           charactersList.map(async (char) => {
-            // Use the SpritesContext function to get the correct path
+            const stats = await getCharacterStats(char.id);
             const spritePath = getCharacterSpritePath(char);
-            console.log(`Checking sprites for ${char.name} (${char.id}) at path: ${spritePath}`);
+            console.log(`Loading stats for ${char.name} (${char.id}):`, stats);
+            
             const hasSprites = await checkSpriteExists(spritePath);
             return {
               ...char,
+              stats: {
+                attack: stats.attack,
+                defense: stats.defense,
+                speed: stats.speed
+              },
               hasSprites,
               spritePath
             };
           })
         );
         
-        setCharacters(charactersWithValidation);
+        console.log('Characters loaded with stats:', charactersWithStats);
+        setCharacters(charactersWithStats);
         
         // По умолчанию выбираем первого персонажа с доступными спрайтами
-        const firstValidCharacter = charactersWithValidation.find(char => char.hasSprites);
+        const firstValidCharacter = charactersWithStats.find(char => char.hasSprites);
         if (firstValidCharacter) {
           console.log(`Auto-selecting character: ${firstValidCharacter.name} (${firstValidCharacter.id})`);
           setSelectedCharacterId(firstValidCharacter.id);
@@ -95,7 +105,7 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
     };
     
     loadCharacters();
-  }, [getCharacters, checkSpriteExists, getCharacterSpritePath]);
+  }, [getCharacters, checkSpriteExists, getCharacterSpritePath, getCharacterStats, initializeCharacterStats]);
   const handleSelect = async () => {
     const selectedCharacter = characters.find(char => char.id === selectedCharacterId);
     if (selectedCharacter) {
@@ -129,91 +139,109 @@ const CharacterSelect = ({ onSelectCharacter, onCancel, playerNumber = null }) =
     );
   }
     return (
-    <div className="bg-gray-800 p-8 rounded-lg shadow-lg max-w-lg w-full mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6 text-center">
-        {playerNumber ? `Игрок ${playerNumber}: Выберите персонажа` : 'Выберите персонажа'}
-      </h2>
-      
-      {characters.length === 0 ? (
-        <p className="text-center text-gray-300">Персонажи не найдены</p>
-      ) : (
-        <div className="grid grid-cols-2 gap-6 mb-6">
-          {characters.map((character) => (
-            <div 
-              key={character.id}
-              className={`bg-gray-700 p-4 rounded-lg cursor-pointer transition-all
-                ${selectedCharacterId === character.id 
-                  ? 'border-4 border-purple-500 transform scale-105' 
-                  : 'border-4 border-transparent hover:border-purple-300'}`}
-              onClick={() => setSelectedCharacterId(character.id)}
-            >
-              <div className="flex flex-col items-center">
-                <img 
-                  src={character.imageUrl} 
-                  alt={character.name} 
-                  className="w-32 h-32 object-contain mb-2"
-                />                <h3 className="text-white font-bold text-lg">{character.name}</h3>
-                {character.description && (
-                  <p className="text-gray-300 text-sm mt-1 mb-2">{character.description}</p>
-                )}
-                {character.stats && (
-                  <div className="w-full mt-2">
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-300 text-xs">Атака</span>
-                      <div className="bg-gray-600 h-2 w-24 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-red-500 h-full" 
-                          style={{ width: `${character.stats.attack * 10}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-xs text-red-300 ml-1">{character.stats.attack}</span>
+    <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-80 z-50">
+      <div className="bg-gray-900 p-8 rounded-xl shadow-2xl max-w-4xl w-full">
+        <h2 className="text-3xl font-bold text-white mb-6">
+          {playerNumber ? `Выберите персонажа ${playerNumber}` : 'Выберите персонажа'}
+        </h2>
+        
+        {loading ? (
+          <div className="text-white text-center">Загрузка персонажей...</div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {characters.map(character => (
+              <div
+                key={character.id}
+                className={`relative bg-gray-800 rounded-lg p-4 cursor-pointer transition-all transform hover:scale-105
+                  ${selectedCharacterId === character.id ? 'ring-4 ring-blue-500' : ''}
+                  ${!character.hasSprites ? 'opacity-50 cursor-not-allowed' : ''}`}
+                onClick={() => character.hasSprites && setSelectedCharacterId(character.id)}
+              >
+                <div className="aspect-w-16 aspect-h-9 mb-4">
+                  {character.hasSprites ? (
+                    <img
+                      src={character.imageUrl}
+                      alt={character.name}
+                      className="object-cover rounded-md"
+                      onError={(e) => {
+                        console.error(`Error loading image for ${character.name}`);
+                        e.target.src = '/assets/placeholder.png';
+                      }}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center h-full bg-gray-700 rounded-md">
+                      <span className="text-gray-400">Спрайты недоступны</span>
                     </div>
-                    <div className="flex justify-between items-center mb-1">
-                      <span className="text-gray-300 text-xs">Защита</span>
-                      <div className="bg-gray-600 h-2 w-24 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-blue-500 h-full" 
-                          style={{ width: `${character.stats.defense * 10}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-xs text-blue-300 ml-1">{character.stats.defense}</span>
+                  )}
+                </div>
+                
+                <h3 className="text-xl font-bold text-white mb-2">{character.name}</h3>
+                
+                {/* Статистика персонажа */}
+                <div className="space-y-2">
+                  <div className="flex items-center">
+                    <span className="text-red-400 w-20">Атака:</span>
+                    <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-red-500"
+                        style={{ width: `${(character.stats?.attack || 0) * 10}%` }}
+                      />
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-gray-300 text-xs">Скорость</span>
-                      <div className="bg-gray-600 h-2 w-24 rounded-full overflow-hidden">
-                        <div 
-                          className="bg-green-500 h-full" 
-                          style={{ width: `${character.stats.speed * 10}%` }}
-                        ></div>
-                      </div>
-                      <span className="text-xs text-green-300 ml-1">{character.stats.speed}</span>
+                    <span className="text-white ml-2">{character.stats?.attack || 0}</span>
+                  </div>
+                  
+                  <div className="flex items-center">
+                    <span className="text-blue-400 w-20">Защита:</span>
+                    <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-blue-500"
+                        style={{ width: `${(character.stats?.defense || 0) * 10}%` }}
+                      />
                     </div>
+                    <span className="text-white ml-2">{character.stats?.defense || 0}</span>
+                  </div>
+                  
+                  <div className="flex items-center">
+                    <span className="text-green-400 w-20">Скорость:</span>
+                    <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500"
+                        style={{ width: `${(character.stats?.speed || 0) * 10}%` }}
+                      />
+                    </div>
+                    <span className="text-white ml-2">{character.stats?.speed || 0}</span>
+                  </div>
+                </div>
+                
+                {spriteErrors[character.id] && (
+                  <div className="mt-2 text-red-400 text-sm">
+                    Ошибка загрузки некоторых спрайтов
                   </div>
                 )}
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+        )}
+        
+        <div className="flex justify-between mt-6">
+          <button
+            onClick={onCancel}
+            className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
+          >
+            Назад
+          </button>
+          <button
+            onClick={handleSelect}
+            disabled={!selectedCharacterId}
+            className={`${
+              selectedCharacterId 
+                ? 'bg-purple-600 hover:bg-purple-700' 
+                : 'bg-purple-800 cursor-not-allowed'
+            } text-white font-bold py-3 px-6 rounded-lg transition-colors`}
+          >
+            Выбрать
+          </button>
         </div>
-      )}
-      
-      <div className="flex justify-between mt-6">
-        <button
-          onClick={onCancel}
-          className="bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg transition-colors"
-        >
-          Назад
-        </button>
-        <button
-          onClick={handleSelect}
-          disabled={!selectedCharacterId}
-          className={`${
-            selectedCharacterId 
-              ? 'bg-purple-600 hover:bg-purple-700' 
-              : 'bg-purple-800 cursor-not-allowed'
-          } text-white font-bold py-3 px-6 rounded-lg transition-colors`}
-        >
-          Выбрать
-        </button>
       </div>
     </div>
   );

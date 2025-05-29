@@ -1,3 +1,4 @@
+
 package com.example.controller;
 
 import java.util.List;
@@ -102,7 +103,7 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
-
+    
     // Обновление рейтинга пользователя
     @PutMapping("/{id}/rating")
     public ResponseEntity<User> updateUserRating(@PathVariable String id, @RequestParam boolean isWin) {
@@ -118,7 +119,26 @@ public class UserController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
-
+    
+    // Обновление валюты пользователя    @PutMapping("/{id}/currency")
+    public ResponseEntity<User> updateUserCurrency(@PathVariable String id, 
+                                                 @RequestParam(required = false, defaultValue = "0") Integer addCoins,
+                                                 @RequestParam(required = false, defaultValue = "0") Integer addGems) {
+        try {
+            logger.info("Updating currency for user with ID: {}, addCoins: {}, addGems: {}", 
+                      id, addCoins, addGems);
+            
+            User updatedUser = userService.updateCurrency(id, addCoins, addGems);
+            
+            return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(updatedUser);
+        } catch (ExecutionException | InterruptedException e) {
+            logger.error("Error updating user currency: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+    
     // Удаление пользователя
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteUser(@PathVariable String id) {
@@ -131,6 +151,46 @@ public class UserController {
                 .body("{\"message\": \"User deleted successfully\"}");
         } catch (ExecutionException | InterruptedException e) {
             logger.error("Error deleting user: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+      // Добавление предмета в инвентарь
+    @PutMapping("/{id}/inventory")
+    public ResponseEntity<User> addToInventory(@PathVariable String id, @RequestParam String itemId) {
+        try {
+            logger.info("Adding item {} to inventory for user with ID: {}", itemId, id);
+            
+            // Проверяем, есть ли уже этот предмет в инвентаре
+            if (userService.hasItem(id, itemId)) {
+                User user = userService.getUser(id);
+                return ResponseEntity.ok()
+                    .header("Content-Type", "application/json")
+                    .body(user); // Предмет уже есть, возвращаем текущего пользователя
+            }
+            
+            User updatedUser = userService.addToInventory(id, itemId);
+            
+            return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(updatedUser);
+        } catch (ExecutionException | InterruptedException e) {
+            logger.error("Error updating user inventory: {}", e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+        }
+    }
+      // Проверка наличия предмета у пользователя
+    @GetMapping("/{id}/inventory/{itemId}")
+    public ResponseEntity<Boolean> hasItem(@PathVariable String id, @PathVariable String itemId) {
+        try {
+            logger.info("Checking if user {} has item {}", id, itemId);
+            
+            boolean hasItem = userService.hasItem(id, itemId);
+            
+            return ResponseEntity.ok()
+                .header("Content-Type", "application/json")
+                .body(hasItem);
+        } catch (ExecutionException | InterruptedException e) {
+            logger.error("Error checking user inventory: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
