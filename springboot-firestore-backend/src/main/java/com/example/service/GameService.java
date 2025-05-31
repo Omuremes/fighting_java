@@ -1,15 +1,22 @@
 package com.example.service;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import com.example.model.Game;
 import com.example.model.GameAction;
 import com.example.model.Player;
-import com.google.api.core.ApiFuture;
-import com.google.cloud.firestore.*;
+import com.example.model.Room;
+import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.DocumentSnapshot;
+import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.QuerySnapshot;
 
 @Service
 public class GameService {
@@ -22,9 +29,13 @@ public class GameService {
     private static final int ATTACK_DAMAGE = 10;
     private static final int CANVAS_WIDTH = 1200;
     private static final int PLAYER_WIDTH = 500;
+    
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(GameService.class);
 
+    @Autowired
     public GameService(Firestore firestore) {
         this.firestore = firestore;
+        logger.info("GameService initialized with Firestore dependency");
     }
 
     // 🎮 Create new game
@@ -40,6 +51,33 @@ public class GameService {
         activeGames.put(game.getId(), game);
         firestore.collection("games").document(game.getId()).set(game).get();
 
+        logger.info("Game created: {}", game.getId());
+        return game;
+    }
+
+    // 🏠 Create game from room data
+    public Game createRoomGame(Room room) throws ExecutionException, InterruptedException {
+        logger.info("Creating game for room: {}", room.getRoomId());
+        
+        // Create players from room data
+        Player player1 = new Player(room.getHostId(), room.getHostName());
+        Player player2 = new Player(room.getGuestId(), room.getGuestName());
+        
+        // Create and configure the game
+        Game game = new Game(player1, player2);
+        game.setStatus("running");
+
+        // Initial positions
+        player1.setX(0);
+        player1.setY(0);
+        player2.setX(CANVAS_WIDTH - PLAYER_WIDTH);
+        player2.setY(0);
+
+        // Store in memory and Firestore
+        activeGames.put(game.getId(), game);
+        firestore.collection("games").document(game.getId()).set(game).get();
+
+        logger.info("Room game created: {} for room: {}", game.getId(), room.getRoomId());
         return game;
     }
 
@@ -131,7 +169,9 @@ public class GameService {
             player.setFacing("right");
             player.setCurrentAnimation("run");
         }
-    }    // 🥊 Attack logic
+    }
+
+    // 🥊 Attack logic
     private void handleAttackAction(Player attacker, Player defender, String attackType) {
         attacker.setAttacking(true);
         attacker.setCurrentAnimation(attackType);
@@ -157,25 +197,20 @@ public class GameService {
         boolean canHit = distance <= attackRange && (facingRight == defenderIsRight);
         
         // Логгирование для отладки
-        System.out.println("Attack info - Attacker: " + attacker.getId() + 
-                           ", Facing: " + attacker.getFacing() + 
-                           ", Position: " + attackerX + 
-                           ", Defender position: " + defenderX + 
-                           ", Distance: " + distance + 
-                           ", Range: " + attackRange + 
-                           ", Can hit: " + canHit);
+        logger.debug("Attack info - Attacker: {} Facing: {} Position: {} Defender position: {} Distance: {} Range: {} Can hit: {}",
+                    attacker.getId(), attacker.getFacing(), attackerX, defenderX, distance, attackRange, canHit);
         
         // Если можем попасть, наносим урон
         if (canHit || true) { // Убрать "|| true" когда захотите включить точный расчет попаданий
             int newHealth = Math.max(0, defender.getHealth() - damage);
-            System.out.println("Damage calculation: current health=" + defender.getHealth() + 
-                              ", damage=" + damage + ", new health=" + newHealth);
+            logger.debug("Damage calculation: current health={} damage={} new health={}", 
+                        defender.getHealth(), damage, newHealth);
             defender.setHealth(newHealth);
             defender.setCurrentAnimation("getHit");
             
-            System.out.println("Defender health after hit: " + defender.getHealth());
+            logger.debug("Defender health after hit: {}", defender.getHealth());
         } else {
-            System.out.println("Attack missed!");
+            logger.debug("Attack missed!");
         }
     }
 

@@ -4,14 +4,12 @@ import { useAuth } from '../contexts/AuthContext';
 import CharacterSelect from '../components/CharacterSelect';
 
 const Menu = () => {
-  const { currentUser, logout, createRoom, getRoomData } = useAuth();
+  const { currentUser, logout, getRoomData } = useAuth();
   const navigate = useNavigate();
   const [gameMode, setGameMode] = useState(null);
   const [roomCode, setRoomCode] = useState('');
-  const [hostIp, setHostIp] = useState('');
   const [isJoiningRoom, setIsJoiningRoom] = useState(false);
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
-  const [selectedCharacter, setSelectedCharacter] = useState(null);
   const [pendingGameMode, setPendingGameMode] = useState(null);
   const [selectingPlayerNumber, setSelectingPlayerNumber] = useState(1); // Какой игрок выбирает персонажа (1 или 2)
   const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого иг��ока
@@ -68,29 +66,41 @@ const Menu = () => {
     }
     
     // Для других режимов (одиночной игры или онлайн)
-    setSelectedCharacter(character);
     setShowCharacterSelect(false);
     
     // Переходим к игре с выбранным персонажем
     if (pendingGameMode === 'single-player') {
       navigate('/game/single-player', { state: { character } });
     } else if (pendingGameMode === 'online') {
-      // Для онлайн режима создаем комнату с информацией о выбранном персонаже в Firebase
-      const newRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      
+      // For online mode, create room via backend API
       try {
-        await createRoom(
-          newRoomCode, 
-          currentUser.uid, 
-          currentUser.name || currentUser.email, 
-          character
-        );
-        
-        // Переходим в комнату с созданным кодом
-        navigate(`/game/online/host/${newRoomCode}`, { 
+        // Call backend API to create room
+        const response = await fetch('/api/rooms', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            hostId: currentUser.uid,
+            hostName: currentUser.name || currentUser.email,
+            hostCharacter: character
+          }),
+          credentials: 'include'
+        });
+
+        if (!response.ok) {
+          throw new Error(`Failed to create room: ${response.status}`);
+        }
+
+        const room = await response.json();
+        console.log('Room created via backend:', room);
+
+        // Navigate to the room with the backend-generated room ID
+        navigate(`/game/online/host/${room.roomId}`, { 
           state: { 
             character,
-            isHost: true 
+            isHost: true,
+            roomData: room
           } 
         });
       } catch (error) {
@@ -100,17 +110,17 @@ const Menu = () => {
     } else if (pendingGameMode === 'join-room') {
       // Для присоединения к комнате
       try {
-        // Переходим в комнату с выбранным персонажем и IP хоста
-        navigate(`/game/online/join/${roomCode}`, { 
+        // Переходим в комнату с выбранным персонажем (используем нормализованный код)
+        const normalizedRoomCode = roomCode.toLowerCase().trim();
+        navigate(`/game/online/join/${normalizedRoomCode}`, { 
           state: { 
             character,
-            isHost: false,
-            hostIp: hostIp // Передаем IP хоста для подключения
+            isHost: false
           } 
         });
       } catch (error) {
         console.error('Error joining room:', error);
-        alert('Ошибка при присоединении к комнате. Пожалуйста, проверьте код комнаты и IP адрес хоста, затем попробуйте еще раз.');
+        alert('Ошибка при присоединении к комнате. Пожалуйста, проверьте код комнаты и попробуйте еще раз.');
       }
     }
   };
@@ -124,8 +134,11 @@ const Menu = () => {
   const handleJoinRoom = async () => {
     if (roomCode) {
       try {
+        // Нормализуем ID комнаты (удаляем пробелы и приводим к нижнему регистру)
+        const normalizedRoomCode = roomCode.toLowerCase().trim();
+        
         // Проверяем существование комнаты перед выбором персонажа
-        const roomData = await getRoomData(roomCode);
+        const roomData = await getRoomData(normalizedRoomCode);
         
         if (!roomData) {
           alert('Комната не найдена. Проверьте код комнаты и попробуйте еще раз.');
@@ -133,7 +146,13 @@ const Menu = () => {
         }
         
         if (roomData.status !== 'waiting') {
-          alert('Невозможно присоединиться к комнате. Игра уже началась или комната закрыта.');
+          if (roomData.status === 'playing') {
+            alert('Невозможно присоединиться к комнате - игра уже началась.');
+          } else if (roomData.status === 'finished') {
+            alert('Невозможно присоединиться к комнате - игра уже закончена.');
+          } else {
+            alert('Невозможно присоединиться к комнате - комната недоступна.');
+          }
           return;
         }
         
@@ -142,7 +161,22 @@ const Menu = () => {
         setShowCharacterSelect(true);
       } catch (error) {
         console.error('Error checking room:', error);
-        alert('Ошибка при проверке комнаты. Пожалуйста, попробуйте еще раз.');
+        
+        // Handle specific error codes
+        let errorMessage = 'Ошибка при проверке комнаты. Пожалуйста, попробуйте еще раз.';
+        if (error.code === 'ROOM_NOT_FOUND') {
+          errorMessage = 'Комната не найдена. Проверьте код комнаты и попробуйте еще раз.';
+        } else if (error.code === 'ROOM_FULL') {
+          errorMessage = 'В комнате уже есть два игрока.';
+        } else if (error.code === 'ROOM_IN_PROGRESS') {
+          errorMessage = 'Игра уже началась в этой комнате.';
+        } else if (error.code === 'ROOM_FINISHED') {
+          errorMessage = 'Игра в этой комнате уже закончена.';
+        } else if (error.code === 'ROOM_NOT_AVAILABLE') {
+          errorMessage = 'Комната недоступна для присоединения.';
+        }
+        
+        alert(errorMessage);
       }
     } else {
       alert('Пожалуйста, введите код комнаты.');
@@ -237,10 +271,10 @@ const Menu = () => {
           <h2 className="text-2xl font-bold text-white">Онлайн игра</h2>
           
           <div className="bg-blue-900 p-4 rounded-lg">
-            <h3 className="font-semibold text-white text-lg mb-2">Локальное подключение</h3>
+            <h3 className="font-semibold text-white text-lg mb-2">Онлайн игра</h3>
             <p className="text-gray-300 text-sm">
-              Для игры по локальной сети один игрок создает комнату, а второй подключается к ней, 
-              используя код комнаты и IP-адрес хоста.
+              Создайте комнату или присоединитесь к существующей комнате по коду. 
+              Все комнаты автоматически синхронизируются через сервер.
             </p>
           </div>
           
@@ -255,27 +289,15 @@ const Menu = () => {
                   id="roomCode"
                   className="w-full p-2 bg-gray-800 text-white border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                   value={roomCode}
-                  onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
-                  placeholder="Введите код комнаты"
-                  maxLength={6}
-                />
-              </div>
-              
-              <div className="bg-gray-700 p-4 rounded-lg">
-                <label htmlFor="hostIp" className="block text-white text-sm font-medium mb-2">
-                  IP адрес хоста (локальный)
-                </label>
-                <input
-                  type="text"
-                  id="hostIp"
-                  className="w-full p-2 bg-gray-800 text-white border border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                  onChange={(e) => setHostIp(e.target.value)}
-                  placeholder="Например: 192.168.1.100"
+                  onChange={(e) => setRoomCode(e.target.value.toLowerCase().trim())}
+                  placeholder="например: 7be08c65-6f05-4517-b82d-b20bcaa8fd6e"
+                  maxLength={36} // Room IDs are UUIDs, longer than 6 chars
                 />
                 <p className="mt-2 text-sm text-gray-400">
-                  Введите локальный IP-адрес компьютера, на котором создана комната
+                  Введите полный код комнаты, полученный от хоста
                 </p>
               </div>
+              
               <button
                 onClick={handleJoinRoom}
                 disabled={!roomCode}

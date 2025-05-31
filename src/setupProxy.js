@@ -1,30 +1,21 @@
 const { createProxyMiddleware } = require('http-proxy-middleware');
 
 module.exports = function(app) {
+  console.log('[PROXY SETUP] Setting up proxies...');
+  
   // Прокси для /api путей
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'http://localhost:8082',
+      target: 'http://localhost:8082/api',
       changeOrigin: true,
       secure: false,
+      logLevel: 'debug',
       pathRewrite: {
-        '^/api': '/api'  // сохраняем /api в пути
+        '^/api': '', // Remove /api prefix since target already includes it
       },
-      onProxyReq: (proxyReq, req) => {
-        // Log outgoing request for debugging
-        console.log(`[PROXY] ${req.method} ${req.path} -> ${proxyReq.path}`);
-        
-        if (['POST', 'PUT'].includes(req.method) && req.body) {
-          const bodyData = JSON.stringify(req.body);
-          console.log(`[PROXY] Request body: ${bodyData}`);
-          
-          // Update header
-          proxyReq.setHeader('Content-Type', 'application/json');
-          proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-          // Write body
-          proxyReq.write(bodyData);
-        }
+      onProxyReq: (proxyReq, req, res) => {
+        console.log(`[PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
       },
       onProxyRes: (proxyRes, req, res) => {
         console.log(`[PROXY] Response: ${proxyRes.statusCode} for ${req.method} ${req.path}`);
@@ -44,6 +35,8 @@ module.exports = function(app) {
       }
     })
   );
+  
+  console.log('[PROXY SETUP] /api proxy configured');
   
   // Добавляем прокси для /games путей
   app.use(
