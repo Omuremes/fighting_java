@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore';
 import { getAnalytics } from "firebase/analytics";
 import { getStorage, ref, getDownloadURL, listAll } from 'firebase/storage';
+import apiService from '../services/api';
 
 // Инициализация Firebase
 const firebaseConfig = {
@@ -573,61 +574,54 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // Room management functions for online play
-  async function createRoom(roomId, hostId, hostName, hostCharacter) {
-    try {
-      const timestamp = new Date().toISOString();
-      const roomData = {
-        roomId,
-        hostId,
-        hostName,
-        hostCharacter,
-        hostReady: true,
-        guestId: null,
-        guestName: null,
-        guestCharacter: null,
-        guestReady: false,
-        status: 'waiting', // waiting, playing, completed
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        localIp: await getLocalIp()
-      };
-      
-      await setDoc(doc(db, "rooms", roomId), roomData);
-      console.log(`Room created: ${roomId}`);
-      return roomData;
-    } catch (error) {
-      console.error("Error creating room:", error);
-      throw error;
-    }
-  }
+  // Room creation is now handled entirely by backend - no frontend creation
 
   async function joinRoom(roomId, guestId, guestName, guestCharacter) {
     try {
-      const roomRef = doc(db, "rooms", roomId);
-      const roomDoc = await getDoc(roomRef);
+      // Normalize room ID for consistency
+      const normalizedRoomId = roomId.toLowerCase().trim();
       
-      if (!roomDoc.exists()) {
-        throw new Error("Room not found");
+      console.log(`%c[ROOM] Joining room via backend API: ${normalizedRoomId}`, 'background: #9C27B0; color: white; padding: 2px 5px; border-radius: 2px;');
+      
+      // Join room in backend using the normalized room ID
+      const backendRoom = await apiService.joinRoom(normalizedRoomId, guestId, guestName, guestCharacter);
+      
+      // Get or create Firebase room for real-time sync
+      const firebaseRoomRef = doc(db, "rooms", roomId);
+      const firebaseRoomDoc = await getDoc(firebaseRoomRef);
+      
+      let firebaseRoomData;
+      if (firebaseRoomDoc.exists()) {
+        firebaseRoomData = firebaseRoomDoc.data();
+      } else {
+        // Create Firebase room if it doesn't exist (for backend-first rooms)
+        firebaseRoomData = {
+          roomId: backendRoom.roomId,
+          hostId: backendRoom.hostId,
+          hostName: backendRoom.hostName,
+          hostCharacter: backendRoom.hostCharacter,
+          hostReady: true,
+          status: 'waiting',
+          createdAt: backendRoom.createdAt,
+          backendRoomId: backendRoom.roomId
+        };
       }
       
-      const roomData = roomDoc.data();
-      if (roomData.status !== 'waiting') {
-        throw new Error("Room is not available for joining");
-      }
-      
+      // Update Firebase for real-time sync
       const timestamp = new Date().toISOString();
-      await setDoc(roomRef, {
+      await setDoc(firebaseRoomRef, {
+        ...firebaseRoomData,
         guestId,
         guestName,
         guestCharacter,
         guestReady: true,
-        status: 'playing',
-        updatedAt: timestamp
+        status: backendRoom.status,
+        updatedAt: timestamp,
+        gameId: backendRoom.gameId // Store the game ID from backend
       }, { merge: true });
       
-      console.log(`Joined room: ${roomId}`);
-      return { ...roomData, guestId, guestName, guestCharacter, guestReady: true };
+      console.log(`%c[ROOM] Joined room successfully: ${roomId}`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
+      return { ...firebaseRoomData, guestId, guestName, guestCharacter, guestReady: true, backendRoom };
     } catch (error) {
       console.error("Error joining room:", error);
       throw error;
@@ -636,10 +630,47 @@ export function AuthProvider({ children }) {
 
   async function getRoomData(roomId) {
     try {
-      const roomDoc = await getDoc(doc(db, "rooms", roomId));
-      if (roomDoc.exists()) {
-        return roomDoc.data();
+      // Normalize room ID for consistency
+      const normalizedRoomId = roomId.toLowerCase().trim();
+      
+      // First try to get room data from backend
+      let backendRoom = null;
+      try {
+        backendRoom = await apiService.getRoom(normalizedRoomId);
+      } catch (backendError) {
+        console.warn("Could not fetch backend room data:", backendError);
       }
+
+      // Get room data from Firebase for real-time sync
+      const roomDoc = await getDoc(doc(db, "rooms", normalizedRoomId));
+      
+      if (roomDoc.exists()) {
+        const firebaseRoom = roomDoc.data();
+        return { ...firebaseRoom, backendRoom };
+      } else if (backendRoom) {
+        // If room only exists in backend, create Firebase sync entry
+        const firebaseRoomData = {
+          roomId: backendRoom.roomId,
+          hostId: backendRoom.hostId,
+          hostName: backendRoom.hostName,
+          hostCharacter: backendRoom.hostCharacter,
+          guestId: backendRoom.guestId,
+          guestName: backendRoom.guestName,
+          guestCharacter: backendRoom.guestCharacter,
+          status: backendRoom.status,
+          createdAt: backendRoom.createdAt,
+          lastUpdated: backendRoom.lastUpdated,
+          hostReady: true,
+          guestReady: backendRoom.guestId ? true : false,
+          backendRoomId: backendRoom.roomId
+        };
+        
+        // Create Firebase room for real-time sync
+        await setDoc(doc(db, "rooms", roomId), firebaseRoomData);
+        
+        return { ...firebaseRoomData, backendRoom };
+      }
+      
       return null;
     } catch (error) {
       console.error("Error getting room data:", error);
@@ -660,8 +691,10 @@ export function AuthProvider({ children }) {
     
     return unsubscribe;
   }
-    async function updateRoomStatus(roomId, statusOrData) {
+    async function updateRoomStatus(roomId, statusOrData, winner = null) {
     try {
+      console.log(`%c[ROOM] Updating room status via backend: ${roomId}`, 'background: #FF9800; color: white; padding: 2px 5px; border-radius: 2px;');
+      
       const timestamp = new Date().toISOString();
       
       // Handle both string status or object with multiple fields
@@ -669,7 +702,22 @@ export function AuthProvider({ children }) {
         ? { status: statusOrData, updatedAt: timestamp }
         : { ...statusOrData, updatedAt: timestamp };
       
+      // Get Firebase room data to get backend room ID
+      const firebaseRoom = await getDoc(doc(db, "rooms", roomId));
+      if (firebaseRoom.exists()) {
+        const roomData = firebaseRoom.data();
+        const backendRoomId = roomData.backendRoomId || roomId;
+        
+        // Update backend room status
+        if (typeof statusOrData === 'string') {
+          await apiService.updateRoomStatus(backendRoomId, statusOrData, winner);
+        }
+      }
+      
+      // Update Firebase for real-time sync
       await setDoc(doc(db, "rooms", roomId), updateData, { merge: true });
+      
+      console.log(`%c[ROOM] Room status updated successfully: ${roomId}`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
       return true;
     } catch (error) {
       console.error("Error updating room status:", error);
@@ -727,7 +775,7 @@ export function AuthProvider({ children }) {
       return '127.0.0.1';
     }
   }
-    // Function to sync player actions in online game
+    // Function to sync player actions in online game - now using backend API
   async function syncPlayerAction(roomId, playerType, actionData) {
     try {
       const timestamp = new Date().toISOString();
@@ -747,7 +795,30 @@ export function AuthProvider({ children }) {
         syncPlayerAction.lastUpdateTime = now;
       }
       
-      // Update the room with player action data
+      // For critical game actions, send to backend
+      if (actionData.isCritical || actionData.type === 'attack' || actionData.type === 'special') {
+        try {
+          const firebaseRoom = await getDoc(doc(db, "rooms", roomId));
+          if (firebaseRoom.exists()) {
+            const roomData = firebaseRoom.data();
+            const backendRoomId = roomData.backendRoomId || roomId;
+            
+            // Send action to backend for processing
+            const gameAction = {
+              playerId: actionData.playerId,
+              type: actionData.type,
+              data: actionData
+            };
+            
+            await apiService.processRoomAction(backendRoomId, gameAction);
+            console.log(`%c[GAME] Critical action sent to backend: ${actionData.type}`, 'background: #E91E63; color: white; padding: 2px 5px; border-radius: 2px;');
+          }
+        } catch (backendError) {
+          console.warn("Failed to send action to backend, using Firebase only:", backendError);
+        }
+      }
+      
+      // Update Firebase for real-time sync (all actions)
       await setDoc(doc(db, "rooms", roomId), {
         [updateField]: {
           ...actionData,
@@ -759,6 +830,38 @@ export function AuthProvider({ children }) {
     } catch (error) {
       console.error("Error syncing player action:", error);
       return false;
+    }
+  }
+
+  // New function to process game actions through backend
+  async function processGameAction(roomId, actionData) {
+    try {
+      console.log(`%c[GAME] Processing game action via backend: ${actionData.type}`, 'background: #3F51B5; color: white; padding: 2px 5px; border-radius: 2px;');
+      
+      const firebaseRoom = await getDoc(doc(db, "rooms", roomId));
+      if (!firebaseRoom.exists()) {
+        throw new Error("Room not found");
+      }
+      
+      const roomData = firebaseRoom.data();
+      const backendRoomId = roomData.backendRoomId || roomId;
+      
+      // Send action to backend
+      const result = await apiService.processRoomAction(backendRoomId, actionData);
+      
+      // Update Firebase with the game state for real-time sync
+      if (result) {
+        await setDoc(doc(db, "rooms", roomId), {
+          gameState: result,
+          updatedAt: new Date().toISOString()
+        }, { merge: true });
+      }
+      
+      console.log(`%c[GAME] Game action processed successfully`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
+      return result;
+    } catch (error) {
+      console.error("Error processing game action:", error);
+      throw error;
     }
   }
   
@@ -779,13 +882,13 @@ export function AuthProvider({ children }) {
     getCharacterStats,
     updateCharacterStats,
     initializeCharacterStats,
-    createRoom,
     joinRoom,
     getRoomData,
     listenToRoom,
     updateRoomStatus,
     getLocalIp,
-    syncPlayerAction
+    syncPlayerAction,
+    processGameAction
   };
 
   return (
