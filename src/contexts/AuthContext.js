@@ -18,6 +18,7 @@ import {
 import { getAnalytics } from "firebase/analytics";
 import { getStorage, ref, getDownloadURL, listAll } from 'firebase/storage';
 import apiService from '../services/api';
+import webSocketService from '../services/WebSocketService';
 
 // Инициализация Firebase
 const firebaseConfig = {
@@ -679,17 +680,56 @@ export function AuthProvider({ children }) {
   }
     function listenToRoom(roomId, callback) {
     const roomRef = doc(db, "rooms", roomId);
-    const unsubscribe = onSnapshot(roomRef, (doc) => {
+    const firestoreUnsubscribe = onSnapshot(roomRef, (doc) => {
       if (doc.exists()) {
-        callback(doc.data());
+        callback({
+          type: 'room_metadata',
+          data: doc.data()
+        });
       } else {
-        callback(null);
+        callback({
+          type: 'error',
+          error: 'ROOM_NOT_FOUND',
+          message: 'Room not found'
+        });
       }
     }, (error) => {
       console.error("Error listening to room:", error);
+      callback({
+        type: 'error',
+        error: 'FIRESTORE_ERROR',
+        message: error.message
+      });
     });
     
-    return unsubscribe;
+    // Add WebSocket subscription for real-time game events
+    let wsSubscription = null;
+    webSocketService.connect()
+      .then(() => {
+        wsSubscription = webSocketService.subscribeToRoom(roomId, (action) => {
+          // Handle WebSocket message
+          callback(action);
+        });
+        
+        // Set playerId for room join message
+        wsSubscription.playerId = currentUser?.uid;
+      })
+      .catch(error => {
+        console.error("WebSocket connection error:", error);
+        callback({
+          type: 'error',
+          error: 'WEBSOCKET_ERROR',
+          message: error.message
+        });
+      });
+    
+    // Return a combined unsubscribe function
+    return () => {
+      firestoreUnsubscribe();
+      if (wsSubscription) {
+        wsSubscription.unsubscribe();
+      }
+    };
   }
     async function updateRoomStatus(roomId, statusOrData, winner = null) {
     try {
@@ -778,53 +818,46 @@ export function AuthProvider({ children }) {
     // Function to sync player actions in online game - now using backend API
   async function syncPlayerAction(roomId, playerType, actionData) {
     try {
-      const timestamp = new Date().toISOString();
-      const updateField = playerType === 'host' ? 'hostAction' : 'guestAction';
+      const timestamp = Date.now();
       
       // Rate limiting for position updates to avoid excessive writes
-      // Only limit regular movement updates, not critical actions like attacks
       if (actionData.type === 'move' && !actionData.isCritical) {
         const now = Date.now();
         const lastUpdateTime = syncPlayerAction.lastUpdateTime || 0;
         
-        // Limit position updates to once every 50ms (20 updates per second)
-        if (now - lastUpdateTime < 50) {
+        // Limit position updates to once every 33ms (30 updates per second)
+        if (now - lastUpdateTime < 33) {
           return true; // Skip this update
         }
         
         syncPlayerAction.lastUpdateTime = now;
       }
       
-      // For critical game actions, send to backend
-      if (actionData.isCritical || actionData.type === 'attack' || actionData.type === 'special') {
+      // Create the action object
+      const gameAction = {
+        playerId: currentUser?.uid,
+        playerType: playerType,
+        type: actionData.type || 'update',
+        data: actionData,
+        timestamp: timestamp
+      };
+      
+      // Send via WebSocket for real-time delivery
+      const result = webSocketService.sendGameAction(roomId, gameAction);
+      
+      // For critical actions or if WebSocket fails, also send via REST API as backup
+      if (!result || actionData.isCritical || 
+          actionData.type === 'attack' || 
+          actionData.type === 'hit' || 
+          actionData.type === 'special' || 
+          actionData.type === 'health') {
         try {
-          const firebaseRoom = await getDoc(doc(db, "rooms", roomId));
-          if (firebaseRoom.exists()) {
-            const roomData = firebaseRoom.data();
-            const backendRoomId = roomData.backendRoomId || roomId;
-            
-            // Send action to backend for processing
-            const gameAction = {
-              playerId: actionData.playerId,
-              type: actionData.type,
-              data: actionData
-            };
-            
-            await apiService.processRoomAction(backendRoomId, gameAction);
-            console.log(`%c[GAME] Critical action sent to backend: ${actionData.type}`, 'background: #E91E63; color: white; padding: 2px 5px; border-radius: 2px;');
-          }
-        } catch (backendError) {
-          console.warn("Failed to send action to backend, using Firebase only:", backendError);
+          const backendRoomId = await getRoomBackendId(roomId);
+          await apiService.processRoomAction(backendRoomId, gameAction);
+        } catch (apiError) {
+          console.warn("Failed to send action to REST API:", apiError);
         }
       }
-      
-      // Update Firebase for real-time sync (all actions)
-      await setDoc(doc(db, "rooms", roomId), {
-        [updateField]: {
-          ...actionData,
-          timestamp
-        }
-      }, { merge: true });
       
       return true;
     } catch (error) {
@@ -833,32 +866,44 @@ export function AuthProvider({ children }) {
     }
   }
 
-  // New function to process game actions through backend
+  // Helper function to get a room's backend ID
+  async function getRoomBackendId(roomId) {
+    try {
+      const roomDoc = await getDoc(doc(db, "rooms", roomId));
+      if (roomDoc.exists()) {
+        const roomData = roomDoc.data();
+        return roomData.backendRoomId || roomId;
+      }
+      return roomId;
+    } catch (error) {
+      console.error("Error getting room backend ID:", error);
+      return roomId;
+    }
+  }
+
+  // Update the processGameAction function to use WebSockets
   async function processGameAction(roomId, actionData) {
     try {
-      console.log(`%c[GAME] Processing game action via backend: ${actionData.type}`, 'background: #3F51B5; color: white; padding: 2px 5px; border-radius: 2px;');
+      console.log(`%c[GAME] Processing game action via WebSocket: ${actionData.type}`, 'background: #3F51B5; color: white; padding: 2px 5px; border-radius: 2px;');
       
-      const firebaseRoom = await getDoc(doc(db, "rooms", roomId));
-      if (!firebaseRoom.exists()) {
-        throw new Error("Room not found");
+      // Add player ID and timestamp
+      actionData.playerId = currentUser?.uid;
+      actionData.timestamp = Date.now();
+      
+      // Send via WebSocket
+      const wsResult = webSocketService.sendGameAction(roomId, actionData);
+      
+      // Also send via REST API as backup
+      try {
+        const backendRoomId = await getRoomBackendId(roomId);
+        const apiResult = await apiService.processRoomAction(backendRoomId, actionData);
+        
+        console.log(`%c[GAME] Game action processed successfully`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
+        return apiResult;
+      } catch (apiError) {
+        console.warn("Failed to send action to REST API, using WebSocket only:", apiError);
+        return wsResult ? { success: true } : null;
       }
-      
-      const roomData = firebaseRoom.data();
-      const backendRoomId = roomData.backendRoomId || roomId;
-      
-      // Send action to backend
-      const result = await apiService.processRoomAction(backendRoomId, actionData);
-      
-      // Update Firebase with the game state for real-time sync
-      if (result) {
-        await setDoc(doc(db, "rooms", roomId), {
-          gameState: result,
-          updatedAt: new Date().toISOString()
-        }, { merge: true });
-      }
-      
-      console.log(`%c[GAME] Game action processed successfully`, 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
-      return result;
     } catch (error) {
       console.error("Error processing game action:", error);
       throw error;
@@ -887,7 +932,6 @@ export function AuthProvider({ children }) {
     listenToRoom,
     updateRoomStatus,
     getLocalIp,
-    syncPlayerAction,
     processGameAction
   };
 

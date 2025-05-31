@@ -4,19 +4,19 @@ import GameCanvas from '../components/GameCanvas';
 import GameOverModal from '../components/GameOverModal';
 import GameHud from '../components/GameHud';
 import { useAuth } from '../contexts/AuthContext';
+import webSocketService from '../services/WebSocketService';
 
 const OnlineGameScreen = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { roomCode } = useParams();
-  const { currentUser, updateRating, listenToRoom, updateRoomStatus, syncPlayerAction, processGameAction } = useAuth();
+  const { currentUser, updateRating, listenToRoom, updateRoomStatus, processGameAction } = useAuth();
   
   const [isHost, setIsHost] = useState(false);
   const [isGameOver, setIsGameOver] = useState(false);
   const [winner, setWinner] = useState(null);
   const [playerCharacter, setPlayerCharacter] = useState(null);
   const [opponentCharacter, setOpponentCharacter] = useState(null);
-  // eslint-disable-next-line no-unused-vars
   const [roomData, setRoomData] = useState(null);
   const [rewardData, setRewardData] = useState(null);
   const [playerPosition, setPlayerPosition] = useState({ x: 100, y: 0 });
@@ -27,6 +27,11 @@ const OnlineGameScreen = () => {
   // Health synchronization state
   const [playerHealth, setPlayerHealth] = useState(100);
   const [opponentHealth, setOpponentHealth] = useState(100);
+  
+  // WebSocket state
+  const [webSocketConnected, setWebSocketConnected] = useState(false);
+  const wsSubscription = useRef(null);
+  const actionSequence = useRef(0);
   
   const lastSyncedAction = useRef(null);
   const gameCanvasRef = useRef(null);
@@ -67,90 +72,154 @@ const OnlineGameScreen = () => {
         setOpponentCharacter(location.state.roomData.hostCharacter);
       }
     }
-      // Устанавливаем слушателя для комнаты
-    const unsubscribe = listenToRoom(roomCode, (data) => {
+    
+    // Connect to WebSocket
+    webSocketService.connect()
+      .then(() => {
+        setWebSocketConnected(true);
+        console.log('%c[WebSocket] Connected successfully', 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
+      })
+      .catch(error => {
+        console.error('%c[WebSocket] Connection failed', 'background: #F44336; color: white; padding: 2px 5px; border-radius: 2px;', error);
+      });
+    
+    // Register for WebSocket connection changes
+    const unsubscribeWs = webSocketService.onConnectionChange((connected) => {
+      setWebSocketConnected(connected);
+      setConnectionStatus(connected ? 'connected' : 'lost');
+    });
+    
+    // Устанавливаем слушателя для комнаты
+    const unsubscribe = listenToRoom(roomCode, handleRoomMessage);
+    
+    return () => {
+      unsubscribe();
+      unsubscribeWs();
+      
+      // Clean up WebSocket subscription
+      if (wsSubscription.current) {
+        wsSubscription.current.unsubscribe();
+        wsSubscription.current = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser, navigate, roomCode, location.state, listenToRoom, isGameOver]);
+  
+  // Handler for all room messages (Firestore and WebSocket)
+  const handleRoomMessage = (message) => {
+    // Update connection monitoring
+    lastReceivedUpdate.current = Date.now();
+    
+    // If connection was weak/lost, restore it
+    if (connectionStatus !== 'connected') {
+      setConnectionStatus('connected');
+    }
+    
+    // For room metadata updates from Firestore
+    if (message.type === 'room_metadata') {
+      const data = message.data;
+      
       if (data) {
         setRoomData(data);
         
-        // Обновляем персонажа оппонента, если он изменился
-        if (isHostPlayer && data.guestCharacter) {
+        // Update opponent character
+        if (isHost && data.guestCharacter && !opponentCharacter) {
           setOpponentCharacter(data.guestCharacter);
-        } else if (!isHostPlayer && data.hostCharacter) {
+        } else if (!isHost && data.hostCharacter && !opponentCharacter) {
           setOpponentCharacter(data.hostCharacter);
         }
         
-        // Синхронизация действий оппонента
-        const opponentActionField = isHostPlayer ? 'guestAction' : 'hostAction';
-        
-        if (data[opponentActionField] && data[opponentActionField].timestamp) {
-          // Проверяем, что это новое действие, которое мы еще не обрабатывали
-          if (!lastSyncedAction.current || 
-              data[opponentActionField].timestamp > lastSyncedAction.current) {
-            
-            const opponentAction = data[opponentActionField];
-            lastSyncedAction.current = opponentAction.timestamp;
-              // Обновляем позицию оппонента с плавной интерполяцией
-            if (opponentAction.position) {
-              // Instead of immediate update, use requestAnimationFrame for smoother transitions
-              const targetPos = opponentAction.position;
-              
-              // Update last received update timestamp for connection monitoring
-              lastReceivedUpdate.current = Date.now();
-              
-              // Update opponent position directly for now - we'll add interpolation in GameCanvas
-              setOpponentPosition(targetPos);
-            }
-            
-            // Обрабатываем атаки оппонента
-            if (opponentAction.attack) {
-              setOpponentAttack({
-                type: opponentAction.attack.type,
-                hit: opponentAction.attack.hit,
-                damage: opponentAction.attack.damage,
-                timestamp: new Date().getTime()
-              });
-              
-              // Если это была атака, которая должна нанести урон игроку
-              if (opponentAction.attack.hit && gameCanvasRef.current) {
-                gameCanvasRef.current.receiveOpponentAttack(opponentAction.attack);
-                // Update local health state for UI
-                setPlayerHealth(gameCanvasRef.current.getPlayerHealth());
-              }
-            }
-            
-            // Обрабатываем синхронизацию здоровья
-            if (opponentAction.health) {
-              if (gameCanvasRef.current) {
-                gameCanvasRef.current.updateHealth(
-                  opponentAction.health.playerHealth, 
-                  opponentAction.health.opponentHealth
-                );
-                // Update local state for UI
-                setPlayerHealth(opponentAction.health.playerHealth || playerHealth);
-                setOpponentHealth(opponentAction.health.opponentHealth || opponentHealth);
-              }
-            }
-          }
-        }
-        
-        // Если статус изменился на 'completed', и игра еще не завершена,
-        // завершаем игру с соответствующим результатом
+        // If status changed to 'completed' and game isn't over yet
         if (data.status === 'completed' && !isGameOver && data.winner) {
           const isWinner = 
-            (isHostPlayer && data.winner === 'host') ||
-            (!isHostPlayer && data.winner === 'guest');
+            (isHost && data.winner === 'host') ||
+            (!isHost && data.winner === 'guest');
           
           setIsGameOver(true);
           setWinner(isWinner ? 'player1' : 'player2');
         }
       }
-    });
+      
+      return;
+    }
     
-    return () => {
-      unsubscribe();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentUser, navigate, roomCode, location.state, listenToRoom, isGameOver]);
+    // Handle WebSocket error
+    if (message.type === 'error') {
+      console.error(`WebSocket error: ${message.error}`, message.message);
+      return;
+    }
+    
+    // For room state updates from WebSocket
+    if (message.type === 'room_state') {
+      // Process room state update
+      console.log('Room state update:', message.data);
+      return;
+    }
+    
+    // Process action messages from opponent
+    if (message.playerType) {
+      const isOpponentAction = 
+        (isHost && message.playerType === 'guest') || 
+        (!isHost && message.playerType === 'host');
+      
+      if (isOpponentAction) {
+        processOpponentAction(message);
+      }
+    }
+  };
+  
+  // Process actions received from opponent
+  const processOpponentAction = (action) => {
+    // Ignore our own actions that come back from server
+    if (action.playerId === currentUser?.uid) {
+      return;
+    }
+    
+    // Check if this is a newer action than the last one
+    if (lastSyncedAction.current && 
+        action.timestamp <= lastSyncedAction.current.timestamp) {
+      return; // Skip older or duplicate actions
+    }
+    
+    lastSyncedAction.current = action;
+    
+    // Update last received update timestamp
+    lastReceivedUpdate.current = Date.now();
+    
+    // Handle different action types
+    if (action.type === 'move') {
+      if (action.data?.position) {
+        setOpponentPosition(action.data.position);
+      }
+    } else if (action.type === 'attack') {
+      setOpponentAttack({
+        type: action.data.attackType,
+        hit: action.data.hit,
+        damage: action.data.damage,
+        timestamp: action.timestamp || Date.now()
+      });
+      
+      // If hit, update player health through GameCanvas
+      if (action.data.hit && gameCanvasRef.current) {
+        gameCanvasRef.current.receiveOpponentAttack(action.data);
+        setPlayerHealth(gameCanvasRef.current.getPlayerHealth());
+      }
+    } else if (action.type === 'hit' || action.type === 'health') {
+      // Update health values
+      if (gameCanvasRef.current) {
+        if (action.data.health) {
+          gameCanvasRef.current.updateHealth(
+            action.data.health.playerHealth, 
+            action.data.health.opponentHealth
+          );
+          
+          // Update UI state
+          setPlayerHealth(action.data.health.playerHealth || playerHealth);
+          setOpponentHealth(action.data.health.opponentHealth || opponentHealth);
+        }
+      }
+    }
+  };
   
   // Monitor connection status based on opponent updates
   useEffect(() => {
@@ -190,8 +259,11 @@ const OnlineGameScreen = () => {
     };
   }, [opponentPosition, opponentAttack, connectionStatus]);
   
-    // Обработка действий игрока
+  // Обработка действий игрока
   const handlePlayerAction = async (action) => {
+    // Increment sequence number for ordering
+    actionSequence.current += 1;
+    
     // Определяем тип игрока для синхронизации (хост или гость)
     const playerType = isHost ? 'host' : 'guest';
     
@@ -200,7 +272,7 @@ const OnlineGameScreen = () => {
         setIsGameOver(true);
         setWinner(action.winner);
         
-        // Process game over through room status update (no backend action needed)
+        // Process game over through room status update
         const isWin = action.winner === 'player1';
         try {
           // Обновляем статус комнаты
@@ -217,40 +289,75 @@ const OnlineGameScreen = () => {
         } catch (error) {
           console.error('Ошибка при обработке завершения игры:', error);
         }
-        break;          case 'move':
+        break;
+      
+      case 'move':
         // Обновляем позицию игрока локально для мгновенного отклика
         setPlayerPosition(action.position);
         
-        // Enhanced position update with smoother synchronization
-        // Movement updates use Firebase for real-time sync with higher frequency
+        // Movement updates get bundled and throttled
+        // Send via WebSocket for real-time sync
+        // If WebSocket isn't available, fall back to API
+        action.sequence = actionSequence.current;
+        
         if (!action.isCritical) {
-          // Reduced throttling for smoother movement (20 updates per second)
+          // Throttle regular movement updates
           const now = Date.now();
           const timeSinceLastUpdate = now - lastPositionUpdate.current;
           
-          if (timeSinceLastUpdate > 50) { 
-            // Include movement direction and velocity for better prediction on receiver side
-            await syncPlayerAction(roomCode, playerType, {
-              type: 'move',
-              position: action.position,
-              timestamp: now,
-              direction: action.direction || 'none',
-              velocity: action.velocity || { x: 0, y: 0 },
-              moving: action.moving || false
-            });
+          if (timeSinceLastUpdate > 33) {
+            if (webSocketConnected) {
+              webSocketService.sendGameAction(roomCode, {
+                playerType,
+                type: 'move',
+                data: {
+                  position: action.position,
+                  direction: action.direction || 'none',
+                  velocity: action.velocity || { x: 0, y: 0 },
+                  moving: action.moving || false,
+                  isCritical: false
+                },
+                sequence: actionSequence.current
+              });
+            } else {
+              // Fall back to API if WebSocket isn't available
+              await processGameAction(roomCode, {
+                actionType: 'move',
+                playerType,
+                data: {
+                  position: action.position,
+                  direction: action.direction || 'none'
+                }
+              });
+            }
             lastPositionUpdate.current = now;
           }
         } else {
-          // Critical position updates (e.g., after an attack) are sent immediately
-          await syncPlayerAction(roomCode, playerType, {
-            type: 'move',
-            position: action.position,
-            isCritical: true,
-            timestamp: Date.now(),
-            direction: action.direction || 'none',
-            velocity: action.velocity || { x: 0, y: 0 },
-            moving: action.moving || false
-          });
+          // Critical position updates are sent immediately
+          if (webSocketConnected) {
+            webSocketService.sendGameAction(roomCode, {
+              playerType,
+              type: 'move',
+              data: {
+                position: action.position,
+                direction: action.direction || 'none',
+                velocity: action.velocity || { x: 0, y: 0 },
+                moving: action.moving || false,
+                isCritical: true
+              },
+              sequence: actionSequence.current
+            });
+          } else {
+            // Fall back to API
+            await processGameAction(roomCode, {
+              actionType: 'move',
+              playerType,
+              data: {
+                position: action.position,
+                isCritical: true
+              }
+            });
+          }
         }
         break;
         
@@ -258,59 +365,72 @@ const OnlineGameScreen = () => {
         // Обновляем состояние атаки локально
         setPlayerAttack({
           type: action.attackType,
-          timestamp: new Date().getTime()
+          timestamp: Date.now()
         });
         
-        // Process attack through backend API for authoritative game logic
+        // Send attack via WebSocket with high priority
+        if (webSocketConnected) {
+          webSocketService.sendGameAction(roomCode, {
+            playerType,
+            type: 'attack',
+            data: {
+              attackType: action.attackType,
+              hit: action.hit,
+              damage: action.damage,
+              position: action.position || playerPosition,
+            },
+            sequence: actionSequence.current
+          });
+        }
+        
+        // Always process through backend for authoritative game logic
         try {
-          const response = await processGameAction(roomCode, {
-            playerId: currentUser.uid,
+          await processGameAction(roomCode, {
             actionType: 'attack',
-            attackType: action.attackType
-          });
-          
-          // Log successful backend processing
-          console.log('Attack processed through backend API:', response);
-          
-          // Also sync to Firebase for immediate visual feedback
-          await syncPlayerAction(roomCode, playerType, {
-            attack: {
-              type: action.attackType,
+            playerType,
+            playerId: currentUser.uid,
+            attackType: action.attackType,
+            data: {
               hit: action.hit,
               damage: action.damage,
-              position: action.position || playerPosition,
-              timestamp: Date.now()
+              position: action.position || playerPosition
             }
           });
+          
+          console.log('%c[GAME] Attack processed successfully', 'background: #4CAF50; color: white; padding: 2px 5px; border-radius: 2px;');
         } catch (error) {
-          console.error('Error processing attack through backend API:', error);
-          // Fallback to Firebase sync only
-          await syncPlayerAction(roomCode, playerType, {
-            attack: {
-              type: action.attackType,
-              hit: action.hit,
-              damage: action.damage,
-              position: action.position || playerPosition,
-              timestamp: Date.now()
-            }
-          });
+          console.error('Error processing attack:', error);
         }
         break;
         
       case 'hit':
-        // Handle hit through Firebase sync only (no backend action needed)
         // Update local health state immediately for responsive UI
         setPlayerHealth(action.remainingHealth);
         
-        // Sync health information to opponent
-        await syncPlayerAction(roomCode, playerType, {
-          type: 'health',
-          health: {
-            playerHealth: action.remainingHealth,
-            opponentHealth: gameCanvasRef.current?.getOpponentHealth() || opponentHealth
-          },
-          timestamp: Date.now()
-        });
+        // Sync health information to opponent via WebSocket
+        if (webSocketConnected) {
+          webSocketService.sendGameAction(roomCode, {
+            playerType,
+            type: 'health',
+            data: {
+              health: {
+                playerHealth: action.remainingHealth,
+                opponentHealth: gameCanvasRef.current?.getOpponentHealth() || opponentHealth
+              }
+            },
+            sequence: actionSequence.current
+          });
+        } else {
+          // Fall back to API
+          await processGameAction(roomCode, {
+            actionType: 'health',
+            playerType,
+            data: {
+              playerHealth: action.remainingHealth,
+              opponentHealth: gameCanvasRef.current?.getOpponentHealth() || opponentHealth
+            }
+          });
+        }
         break;
         
       default:
@@ -341,6 +461,7 @@ const OnlineGameScreen = () => {
       </div>
     );
   }
+  
   return (
     <div className="relative w-screen h-screen bg-black">
       <GameCanvas 
@@ -354,7 +475,9 @@ const OnlineGameScreen = () => {
         opponentAttack={opponentAttack}
         onPlayerAction={handlePlayerAction}
         isHost={isHost}
-      />        <GameHud 
+      />
+      
+      <GameHud 
           player1Character={playerCharacter}
           player2Character={opponentCharacter}
           player1Health={playerHealth}

@@ -13,7 +13,7 @@ const OnlineRoom = () => {
   const [isReady, setIsReady] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
-  const [selectedCharacter, setSelectedCharacter] = useState(null);
+  const [selectedCharacter, setSelectedCharacter] = useState(location.state?.character || null);
   const [roomData, setRoomData] = useState(null);
   const [opponentData, setOpponentData] = useState(null);
   const [error, setError] = useState(null);
@@ -28,22 +28,29 @@ const OnlineRoom = () => {
     } else if (isHost) {
       // Если хост не выбрал персонажа, показываем экран выбора
       setShowCharacterSelect(true);
+    } else {
+      // Если гость не выбрал персонажа, показываем экран выбора
+      setShowCharacterSelect(true);
     }
 
     // Загружаем данные комнаты
     // Inside your useEffect or where you handle joining rooms:
     const fetchRoomData = async () => {
       try {
-        // ...existing code...
+        // Только пытаемся присоединиться к комнате, если у нас есть выбранный персонаж
+        // или из состояния навигации
+        const character = selectedCharacter || location.state?.character;
         
         // When joining a room as a guest
-        if (!isHost && currentUser) {
+        if (!isHost && currentUser && character) {
           try {
+            console.log('Joining room with character:', character);
+            
             const joinResult = await joinRoom(
               roomCode,
               currentUser.uid, 
               currentUser.name || 'Guest',
-              selectedCharacter || location.state.selectedCharacter
+              character
             );
             setRoomData(joinResult);
             setOpponentData({
@@ -61,15 +68,38 @@ const OnlineRoom = () => {
               setError("This room is already full. Please join another room.");
             } else if (error.message && error.message.includes("Room not found")) {
               setError("Room not found. Please check the room code and try again.");
+            } else if (error.message && error.message.includes("Missing required fields")) {
+              setShowCharacterSelect(true);
+              setError("Please select a character before joining.");
             } else if (error.message && error.message.includes("Bad Request")) {
               setError("Не удалось присоединиться к комнате. Проверьте правильность кода комнаты или попробуйте позже.");
             } else {
               setError(`Failed to join room: ${error.message || "Unknown error"}`);
             }
           }
+        } else if (isHost) {
+          // Если хост, просто загружаем существующие данные комнаты
+          try {
+            const roomData = await getRoomData(roomCode);
+            if (roomData) {
+              setRoomData(roomData);
+              
+              // Устанавливаем данные оппонента, если гость присоединился
+              if (roomData.guestId) {
+                setOpponentData({
+                  id: roomData.guestId,
+                  name: roomData.guestName,
+                  character: roomData.guestCharacter
+                });
+                setOpponentReady(roomData.guestReady || false);
+              }
+            } else {
+              setError("Room not found. Please check the code and try again.");
+            }
+          } catch (error) {
+            setError(`Error loading room: ${error.message}`);
+          }
         }
-        
-        // ...existing code...
       } catch (error) {
         console.error("Error in fetchRoomData:", error);
         setError(`Error: ${error.message || "Failed to load room data"}`);
@@ -80,35 +110,39 @@ const OnlineRoom = () => {
       // Устанавливаем слушатель изменений в комнате
     const setupRoomListener = () => {
       roomListener.current = listenToRoom(roomCode, (data) => {
-        if (data) {
-          setRoomData(data);
+        if (data && data.type === 'room_metadata' && data.data) {
+          const roomData = data.data;
+          setRoomData(roomData);
           
           // Обновляем данные оппонента
-          if (isHost && data.guestId) {
+          if (isHost && roomData.guestId) {
             setOpponentData({
-              id: data.guestId,
-              name: data.guestName,
-              character: data.guestCharacter
+              id: roomData.guestId,
+              name: roomData.guestName,
+              character: roomData.guestCharacter
             });
-            setOpponentReady(data.guestReady || false);
-          } else if (!isHost && data.hostId) {
+            setOpponentReady(roomData.guestReady || false);
+          } else if (!isHost && roomData.hostId) {
             setOpponentData({
-              id: data.hostId,
-              name: data.hostName,
-              character: data.hostCharacter
+              id: roomData.hostId,
+              name: roomData.hostName,
+              character: roomData.hostCharacter
             });
-            setOpponentReady(data.hostReady || false);
+            setOpponentReady(roomData.hostReady || false);
           }
             // Обновляем статус игры
-          if (data.status === 'playing' && isReady && opponentReady) {
+          if (roomData.status === 'playing' && isReady && opponentReady) {
             navigate(`/game/online/play/${roomCode}`, {
               state: { 
                 character: selectedCharacter,
                 isHost,
-                roomData: data
+                roomData: roomData
               }
             });
           }
+        } else if (data && data.type === 'error') {
+          console.error("Room listener error:", data.error, data.message);
+          setError(`Connection error: ${data.message}`);
         }
       });
     };
@@ -137,10 +171,33 @@ const OnlineRoom = () => {
     }
   }, [isReady, opponentReady, isHost, roomCode, roomData, updateRoomStatus]);
   
-  const handleCharacterSelect = (character) => {
+  const handleCharacterSelect = async (character) => {
     setSelectedCharacter(character);
     setShowCharacterSelect(false);
     setIsReady(true);
+    
+    // Если гость выбирает персонажа, пытаемся присоединиться к комнате снова
+    if (!isHost && character) {
+      try {
+        const joinResult = await joinRoom(
+          roomCode,
+          currentUser.uid, 
+          currentUser.name || 'Guest',
+          character
+        );
+        setRoomData(joinResult);
+        setOpponentData({
+          id: joinResult.hostId,
+          name: joinResult.hostName,
+          character: joinResult.hostCharacter
+        });
+        // Очищаем любые предыдущие ошибки, так как присоединение было успешным
+        setError(null);
+      } catch (error) {
+        console.error("Error joining room after character selection:", error);
+        setError(`Failed to join room: ${error.message || "Unknown error"}`);
+      }
+    }
   };
   
   const handleCancelSelect = () => {

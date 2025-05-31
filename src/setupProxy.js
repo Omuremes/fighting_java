@@ -3,6 +3,38 @@ const { createProxyMiddleware } = require('http-proxy-middleware');
 module.exports = function(app) {
   console.log('[PROXY SETUP] Setting up proxies...');
   
+  // WebSocket proxy configuration
+  app.use(
+    '/ws',
+    createProxyMiddleware({
+      target: 'http://localhost:8082',
+      changeOrigin: true,
+      ws: true, // Enable WebSockets proxying
+      secure: false,
+      logLevel: 'debug',
+      onProxyReq: (proxyReq, req, res) => {
+        console.log(`[WS PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
+      },
+      onError: (err, req, res) => {
+        console.error(`[WS PROXY ERROR] for ${req.method} ${req.path}:`, err);
+        if (res.writeHead && !res.headersSent) {
+          res.writeHead(500, {
+            'Content-Type': 'text/plain',
+          });
+          res.end(`WebSocket Proxy Error: ${err.message}`);
+        }
+      },
+      headers: {
+        'Access-Control-Allow-Origin': 'http://localhost:3000',
+        'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,PATCH,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+        'Access-Control-Allow-Credentials': 'true'
+      }
+    })
+  );
+  
+  console.log('[PROXY SETUP] /ws WebSocket proxy configured');
+  
   // Прокси для /api путей
   app.use(
     '/api',
@@ -15,17 +47,17 @@ module.exports = function(app) {
         '^/api': '', // Remove /api prefix since target already includes it
       },
       onProxyReq: (proxyReq, req, res) => {
-        console.log(`[PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
+        console.log(`[API PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
       },
       onProxyRes: (proxyRes, req, res) => {
-        console.log(`[PROXY] Response: ${proxyRes.statusCode} for ${req.method} ${req.path}`);
+        console.log(`[API PROXY] Response: ${proxyRes.statusCode} for ${req.method} ${req.path}`);
       },
       onError: (err, req, res) => {
-        console.error(`[PROXY ERROR] for ${req.method} ${req.path}:`, err);
+        console.error(`[API PROXY ERROR] for ${req.method} ${req.path}:`, err);
         res.writeHead(500, {
           'Content-Type': 'text/plain',
         });
-        res.end(`Proxy Error: ${err.message}`);
+        res.end(`API Proxy Error: ${err.message}`);
       },
       headers: {
         'Access-Control-Allow-Origin': 'http://localhost:3000',

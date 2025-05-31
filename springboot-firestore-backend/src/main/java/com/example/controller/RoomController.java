@@ -21,6 +21,7 @@ import com.example.model.GameAction;
 import com.example.model.Room;
 import com.example.model.RoomJoinResult;
 import com.example.service.GameService;
+import com.example.service.GameSocketService;
 import com.example.service.RoomService;
 
 @RestController
@@ -38,6 +39,9 @@ public class RoomController {
     
     @Autowired
     private GameService gameService;
+    
+    @Autowired
+    private GameSocketService gameSocketService;
 
     private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(RoomController.class);
 
@@ -58,6 +62,9 @@ public class RoomController {
             
             Room room = roomService.createRoom(hostId, hostName, hostCharacter);
             logger.info("Room created successfully: {}", room.getRoomId());
+            
+            // Broadcast room creation via WebSocket
+            gameSocketService.broadcastRoomUpdate(room);
             
             return ResponseEntity.ok()
                 .header("Content-Type", "application/json")
@@ -108,6 +115,9 @@ public class RoomController {
                 room.setGameId(game.getId());
                 roomService.updateRoom(room);
                 logger.info("Game created for room {}: {}", roomId, game.getId());
+                
+                // Broadcast room state update via WebSocket
+                gameSocketService.broadcastRoomUpdate(room);
             }
             
             logger.info("Successfully joined room: {}", roomId);
@@ -156,6 +166,9 @@ public class RoomController {
                 return ResponseEntity.notFound().build();
             }
             
+            // Broadcast room status update via WebSocket
+            gameSocketService.broadcastRoomUpdate(room);
+            
             return ResponseEntity.ok()
                 .header("Content-Type", "application/json")
                 .body(room);
@@ -165,12 +178,12 @@ public class RoomController {
         }
     }
 
-    // Process game action in a room
+    // Process game action in a room - now with WebSocket integration
     @PostMapping("/{roomId}/action")
     public ResponseEntity<Game> processRoomAction(@PathVariable String roomId, 
                                                 @RequestBody GameAction action) {
         try {
-            logger.info("Processing action for room {}: {}", roomId, action);
+            logger.info("Processing action for room {}: {}", roomId, action.getType());
             
             Room room = roomService.getRoom(roomId);
             
@@ -181,6 +194,9 @@ public class RoomController {
             
             // Set the game ID from the room
             action.setGameId(room.getGameId());
+            
+            // Process the action and broadcast via WebSocket
+            gameSocketService.processGameAction(roomId, action);
             
             // Process the action through the game service
             Game updatedGame = gameService.processAction(action);
@@ -198,7 +214,12 @@ public class RoomController {
                 } else if (updatedGame.getPlayer2().getWins() >= 2) {
                     winner = room.getHostId().equals(updatedGame.getPlayer2().getId()) ? "host" : "guest";
                 }
-                roomService.updateRoomStatus(roomId, "completed", winner);
+                Room updatedRoom = roomService.updateRoomStatus(roomId, "completed", winner);
+                
+                // Broadcast room update via WebSocket
+                if (updatedRoom != null) {
+                    gameSocketService.broadcastRoomUpdate(updatedRoom);
+                }
             }
             
             logger.info("Action processed successfully for room {}", roomId);

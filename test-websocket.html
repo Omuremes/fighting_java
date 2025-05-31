@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebSocket Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    #log { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: auto; background-color: #f9f9f9; }
+    .success { color: green; }
+    .error { color: red; }
+    .info { color: blue; }
+    button { padding: 10px; margin: 10px 0; }
+  </style>
+</head>
+<body>
+  <h1>WebSocket Test</h1>
+  <p>Testing connection to <span id="socket-url">http://localhost:8082/ws</span></p>
+  
+  <button id="connect-btn">Connect</button>
+  <button id="disconnect-btn" disabled>Disconnect</button>
+  <button id="send-btn" disabled>Send Test Message</button>
+  
+  <h3>Log:</h3>
+  <div id="log"></div>
+  
+  <script>
+    const logElement = document.getElementById('log');
+    const connectBtn = document.getElementById('connect-btn');
+    const disconnectBtn = document.getElementById('disconnect-btn');
+    const sendBtn = document.getElementById('send-btn');
+    
+    // WebSocket connection parameters
+    const socketUrl = 'http://localhost:8082/ws';
+    document.getElementById('socket-url').innerText = socketUrl;
+    
+    let stompClient = null;
+    let socket = null;
+    
+    function log(message, type = 'info') {
+      const logLine = document.createElement('div');
+      logLine.classList.add(type);
+      logLine.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+      logElement.appendChild(logLine);
+      logElement.scrollTop = logElement.scrollHeight;
+      console.log(`[${type}] ${message}`);
+    }
+    
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    sendBtn.addEventListener('click', sendMessage);
+    
+    function connect() {
+      try {
+        log('Creating SockJS connection to ' + socketUrl);
+        
+        // Create SockJS connection
+        socket = new SockJS(socketUrl);
+        
+        // Log SockJS events
+        socket.onopen = function() {
+          log('SockJS connection opened', 'success');
+        };
+        
+        socket.onmessage = function(e) {
+          log('SockJS message received: ' + e.data);
+        };
+        
+        socket.onclose = function(e) {
+          log('SockJS connection closed. Code: ' + e.code + ', Reason: ' + e.reason, e.code === 1000 ? 'info' : 'error');
+          updateButtonState(false);
+        };
+        
+        socket.onerror = function(e) {
+          log('SockJS error: ' + e, 'error');
+        };
+        
+        // Create STOMP client over SockJS
+        log('Creating STOMP client');
+        stompClient = StompJs.Stomp.over(function() {
+          return socket;
+        });
+        
+        stompClient.debug = function(str) {
+          log('STOMP: ' + str);
+        };
+        
+        // Connect to STOMP server
+        log('Connecting to STOMP server...');
+        stompClient.connect({}, 
+          function(frame) {
+            // Success callback
+            log('STOMP connection established. Connected to: ' + frame.headers['server'], 'success');
+            
+            // Subscribe to test topic
+            stompClient.subscribe('/topic/test', function(message) {
+              log('Received message on /topic/test: ' + message.body, 'success');
+              
+              try {
+                const jsonData = JSON.parse(message.body);
+                log('Message parsed: ' + JSON.stringify(jsonData, null, 2));
+              } catch (e) {
+                log('Could not parse message as JSON: ' + e, 'error');
+              }
+            });
+            
+            updateButtonState(true);
+          },
+          function(error) {
+            // Error callback
+            log('STOMP connection error: ' + error, 'error');
+            updateButtonState(false);
+          }
+        );
+      } catch (e) {
+        log('Error creating connection: ' + e, 'error');
+        updateButtonState(false);
+      }
+    }
+    
+    function disconnect() {
+      if (stompClient) {
+        log('Disconnecting STOMP client...');
+        stompClient.disconnect(function() {
+          log('STOMP client disconnected', 'info');
+        });
+        stompClient = null;
+      }
+      
+      if (socket) {
+        log('Closing SockJS connection...');
+        socket.close();
+        socket = null;
+      }
+      
+      updateButtonState(false);
+    }
+    
+    function sendMessage() {
+      if (stompClient && stompClient.connected) {
+        const message = {
+          message: 'Hello from browser test!',
+          timestamp: new Date().toISOString()
+        };
+        
+        log('Sending message to /app/test: ' + JSON.stringify(message));
+        stompClient.publish({
+          destination: '/app/test',
+          body: JSON.stringify(message),
+          headers: { 'content-type': 'application/json' }
+        });
+      } else {
+        log('Cannot send message - not connected', 'error');
+      }
+    }
+    
+    function updateButtonState(connected) {
+      connectBtn.disabled = connected;
+      disconnectBtn.disabled = !connected;
+      sendBtn.disabled = !connected;
+    }
+    
+    log('WebSocket test page loaded, click Connect to begin');
+  </script>
+</body>
+</html> 

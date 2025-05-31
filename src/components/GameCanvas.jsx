@@ -27,9 +27,27 @@ const GameCanvas = forwardRef(({
   // Simplified position handling for online mode
   const handleOpponentPositionUpdate = useCallback((newPosition) => {
     if (gameMode === 'online' && newPosition && player2Pos.current) {
-      // Direct position update without complex interpolation to reduce shaking
-      player2Pos.current.x = newPosition.x;
-      player2Pos.current.y = newPosition.y;
+      // Enhanced position update with interpolation for smoother movement
+      // Calculate the distance to move for smoother transitions
+      const dx = newPosition.x - player2Pos.current.x;
+      const dy = newPosition.y - player2Pos.current.y;
+      
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // If the distance is large (teleport or correction), move directly
+      if (distance > 100) {
+        player2Pos.current.x = newPosition.x;
+        player2Pos.current.y = newPosition.y;
+      } else {
+        // Otherwise, move incrementally for smoother animation
+        // Apply 50% of the movement immediately for responsiveness
+        player2Pos.current.x += dx * 0.5;
+        player2Pos.current.y += dy * 0.5;
+        
+        // Update velocity for smooth movement between updates
+        player2Velocity.current.x = dx * 0.5;
+        player2Velocity.current.y = dy * 0.1;
+      }
       
       // Update player reference directly
       if (player2Ref.current) {
@@ -969,6 +987,33 @@ const GameCanvas = forwardRef(({
 
       // player2
       player2Pos.current.y += player2Velocity.current.y;
+      
+      // For online mode, apply continued motion from interpolation
+      if (gameMode === 'online') {
+        // Apply continued horizontal motion for smoother online movement
+        player2Pos.current.x += player2Velocity.current.x;
+        
+        // Gradually reduce velocity for natural deceleration
+        player2Velocity.current.x *= 0.9;
+        
+        // Prevent tiny movements
+        if (Math.abs(player2Velocity.current.x) < 0.1) {
+          player2Velocity.current.x = 0;
+        }
+        
+        // Update animation based on velocity
+        if (Math.abs(player2Velocity.current.x) > 0.5 && player2Ref.current.isOnGround()) {
+          player2Ref.current.switchAnimation('run');
+          
+          // Flip character based on movement direction
+          if (player2Velocity.current.x > 0) {
+            player2Ref.current.faceLeft = false;
+          } else if (player2Velocity.current.x < 0) {
+            player2Ref.current.faceLeft = true;
+          }
+        }
+      }
+      
       if (player2Pos.current.y < groundY2) {
         player2Velocity.current.y += gravity;
         player2Ref.current.setOnGround(false);
@@ -987,7 +1032,9 @@ const GameCanvas = forwardRef(({
           player2Ref.current.switchAnimation('idle');
         }
       }
-      player2Ref.current.setVelocityY(player2Velocity.current.y);      // Движение по горизонтали с учетом скорости персонажа
+      player2Ref.current.setVelocityY(player2Velocity.current.y);
+      
+      // Движение по горизонтали с учетом скорости персонажа
       const player1MoveSpeed = baseSpeed + (player1Stats.current.speed * 0.3); // Reduced multiplier for smoother movement
       const player2MoveSpeed = baseSpeed + (player2Stats.current.speed * 0.3);
       
@@ -995,7 +1042,7 @@ const GameCanvas = forwardRef(({
       if (keys.player1.left) player1Pos.current.x = Math.max(0, player1Pos.current.x - player1MoveSpeed);
       if (keys.player1.right) player1Pos.current.x = Math.min(canvasWidth - player1Width, player1Pos.current.x + player1MoveSpeed);
       
-      // Only apply movement to player2 in local mode (not online)
+      // Only apply manual movement to player2 in local mode (not online)
       if (gameMode !== 'online') {
         if (keys.player2.left) player2Pos.current.x = Math.max(0, player2Pos.current.x - player2MoveSpeed);
         if (keys.player2.right) player2Pos.current.x = Math.min(canvasWidth - player2Width, player2Pos.current.x + player2MoveSpeed);
