@@ -15,15 +15,38 @@ module.exports = function(app) {
       onProxyReq: (proxyReq, req, res) => {
         console.log(`[WS PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
       },
+      onProxyReqWs: (proxyReq, req, socket, options, head) => {
+        console.log(`[WS PROXY] WebSocket connection: ${req.url}`);
+        // Keep socket alive to avoid disconnections
+        socket.on('error', (err) => {
+          console.error('[WS PROXY] Socket error:', err);
+        });
+      },
       onError: (err, req, res) => {
         console.error(`[WS PROXY ERROR] for ${req.method} ${req.path}:`, err);
-        if (res.writeHead && !res.headersSent) {
+        if (res && res.writeHead && !res.headersSent) {
           res.writeHead(500, {
             'Content-Type': 'text/plain',
           });
           res.end(`WebSocket Proxy Error: ${err.message}`);
         }
       },
+      onOpen: (proxySocket) => {
+        console.log('[WS PROXY] WebSocket connection opened');
+        
+        // Handle proxy socket close
+        proxySocket.on('close', (code, reason) => {
+          console.log(`[WS PROXY] WebSocket connection closed: ${code} - ${reason}`);
+        });
+        
+        // Handle proxy socket errors
+        proxySocket.on('error', (err) => {
+          console.error('[WS PROXY] WebSocket proxy error:', err);
+        });
+      },
+      // Increased timeouts for better reliability
+      proxyTimeout: 30000, // 30 seconds
+      timeout: 30000, // 30 seconds
       headers: {
         'Access-Control-Allow-Origin': 'http://localhost:3000',
         'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,PATCH,OPTIONS',
@@ -35,42 +58,51 @@ module.exports = function(app) {
   
   console.log('[PROXY SETUP] /ws WebSocket proxy configured');
   
-  // Прокси для /api путей
+  // Proxy for /api paths with path rewriting for proper mapping
   app.use(
     '/api',
     createProxyMiddleware({
-      target: 'http://localhost:8082/api',
+      target: 'http://localhost:8082',
       changeOrigin: true,
       secure: false,
       logLevel: 'debug',
-      pathRewrite: {
-        '^/api': '', // Remove /api prefix since target already includes it
-      },
+      // Fix: No path rewriting, keep original /api prefix
+      pathRewrite: { '^/api': '/api' },
       onProxyReq: (proxyReq, req, res) => {
         console.log(`[API PROXY] ${req.method} ${req.url} -> http://localhost:8082${req.url}`);
+        
+        // Log request body for debugging if it's a POST or PUT
+        if (['POST', 'PUT'].includes(req.method) && req.body) {
+          console.log('[API PROXY] Request body:', JSON.stringify(req.body));
+        }
       },
       onProxyRes: (proxyRes, req, res) => {
         console.log(`[API PROXY] Response: ${proxyRes.statusCode} for ${req.method} ${req.path}`);
       },
       onError: (err, req, res) => {
         console.error(`[API PROXY ERROR] for ${req.method} ${req.path}:`, err);
-        res.writeHead(500, {
-          'Content-Type': 'text/plain',
-        });
-        res.end(`API Proxy Error: ${err.message}`);
+        if (res && res.writeHead && !res.headersSent) {
+          res.writeHead(500, {
+            'Content-Type': 'text/plain',
+          });
+          res.end(`API Proxy Error: ${err.message}`);
+        }
       },
       headers: {
         'Access-Control-Allow-Origin': 'http://localhost:3000',
         'Access-Control-Allow-Methods': 'GET,PUT,POST,DELETE,PATCH,OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type,Authorization',
         'Access-Control-Allow-Credentials': 'true'
-      }
+      },
+      // Increased timeouts for better reliability
+      proxyTimeout: 60000, // 60 seconds (increased from default)
+      timeout: 60000       // 60 seconds (increased from default)
     })
   );
   
   console.log('[PROXY SETUP] /api proxy configured');
   
-  // Добавляем прокси для /games путей
+  // Add proxy for /games paths
   app.use(
     '/games',
     createProxyMiddleware({
@@ -94,7 +126,7 @@ module.exports = function(app) {
     })
   );
   
-  // Добавляем прокси для /users путей
+  // Add proxy for /users paths
   app.use(
     '/users',
     createProxyMiddleware({

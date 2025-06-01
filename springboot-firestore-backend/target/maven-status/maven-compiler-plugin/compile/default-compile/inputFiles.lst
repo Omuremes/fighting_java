@@ -7,6 +7,7 @@
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/Application.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/TodoController.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/config/WebSocketConfig.java
+/Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/HealthController.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/model/RoomJoinResult.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/GameSocketController.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/model/Game.java
@@ -23,5 +24,6 @@
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/model/Room.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/service/RoomService.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/model/Todo.java
+/Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/DebugController.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/controller/DirectGameController.java
 /Users/nasipaabdyraiymova/Documents/GitHub/fighting_java/springboot-firestore-backend/src/main/java/com/example/model/Player.java

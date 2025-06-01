@@ -23,12 +23,96 @@ const GameCanvas = forwardRef(({
   const player2Pos = useRef({ x: 0, y: 0 });
   const player1Velocity = useRef({ x: 0, y: 0 });
   const player2Velocity = useRef({ x: 0, y: 0 });
-
+  
+  // Create a hitbox for a player - available at component scope
+  const createHitbox = (player, width = 40, height = 120) => {
+    if (!player || !player.position) return { x: 0, y: 0, width, height };
+    
+    const offset = 150;
+    let attackOffset = 0;
+    
+    // If the player is attacking, extend the hitbox range
+    if (player.currentAnimation && player.currentAnimation.startsWith('attack')) {
+      // Create larger hitbox during the middle frames of the attack animation
+      const frameRatio = player.currentFrame / player.frameCount;
+      if (frameRatio > 0.3 && frameRatio < 0.7) {
+        width += 15;
+        attackOffset = player.facing === 'right' ? 20 : 0;
+      }
+    }
+    
+    return {
+      x: player.position.x + (player.facing === 'right' ? 
+          player.width - width - offset + attackOffset : 
+          offset - attackOffset),
+      y: player.position.y + player.height - height,
+      width,
+      height
+    };
+  };
+  
+  // Sound effects state
+  // eslint-disable-next-line no-unused-vars
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Play sound effect
+  const playSound = (soundType) => {
+    if (!soundEnabled) return;
+    
+    // We could implement actual sound playing here, but for now just log
+    console.log(`Playing sound: ${soundType}`);
+    
+    // For a real implementation, we would use Audio API:
+    // const sound = new Audio(`/assets/sounds/${soundType}.mp3`);
+    // sound.play().catch(err => console.log('Error playing sound:', err));
+  };
+  
+  // Function to switch game mode
+  const switchGameMode = (newMode) => {
+    console.log(`Switching game mode to: ${newMode}`);
+    // This would normally handle any cleanup or setup needed when switching modes
+    // Since game mode is passed as a prop, the actual state lives in the parent component
+  };
+  
+  // Function to reset the game state
+  const resetGame = () => {
+    console.log('Resetting game state');
+    
+    // Reset health
+    player1Health.current = 100;
+    player2Health.current = 100;
+    
+    // Reset positions
+    if (player1Ref.current && player2Ref.current) {
+      player1Pos.current = { x: 0, y: player1Pos.current.y };
+      player2Pos.current = { x: canvasRef.current?.width - 500 || 800, y: player2Pos.current.y };
+      
+      player1Ref.current.position = player1Pos.current;
+      player2Ref.current.position = player2Pos.current;
+      
+      // Reset animations
+      player1Ref.current.switchAnimation('idle');
+      player2Ref.current.switchAnimation('idle');
+    }
+    
+    // Reset attack states
+    player1Attack.current = { inProgress: false, type: null, wasHit: false };
+    player2Attack.current = { inProgress: false, type: null, wasHit: false };
+    
+    // Reset round state
+    round.current = 1;
+    player1Wins.current = 0;
+    player2Wins.current = 0;
+    
+    // Show round text
+    setShowRoundText(true);
+    setRoundTextOpacity(1);
+  };
+  
   // Simplified position handling for online mode
   const handleOpponentPositionUpdate = useCallback((newPosition) => {
     if (gameMode === 'online' && newPosition && player2Pos.current) {
       // Enhanced position update with interpolation for smoother movement
-      // Calculate the distance to move for smoother transitions
       const dx = newPosition.x - player2Pos.current.x;
       const dy = newPosition.y - player2Pos.current.y;
       
@@ -40,12 +124,12 @@ const GameCanvas = forwardRef(({
         player2Pos.current.y = newPosition.y;
       } else {
         // Otherwise, move incrementally for smoother animation
-        // Apply 50% of the movement immediately for responsiveness
-        player2Pos.current.x += dx * 0.5;
-        player2Pos.current.y += dy * 0.5;
+        // Apply 20% of the movement immediately for more responsive movement
+        player2Pos.current.x += dx * 0.2;
+        player2Pos.current.y += dy * 0.1;
         
         // Update velocity for smooth movement between updates
-        player2Velocity.current.x = dx * 0.5;
+        player2Velocity.current.x = dx * 0.4;
         player2Velocity.current.y = dy * 0.1;
       }
       
@@ -114,121 +198,32 @@ const GameCanvas = forwardRef(({
   const gravity = 0.10;
     // Expose methods to the parent component through ref for online mode
   useImperativeHandle(ref, () => ({
-    receiveOpponentAttack: (attackData) => {
-      // This function will be called when opponent's attack hits the player
-      if (player1Health.current > 0) {
-        const damage = attackData.damage || 5; // Default damage if not specified
-        
-        // Apply damage with minimum bound
-        const newHealth = Math.max(0, player1Health.current - damage);
-        player1Health.current = newHealth;
-        
-        // Trigger hit animation only if player is still alive
-        if (newHealth > 0) {
-          player1Attack.current = { ...player1Attack.current, wasHit: true };
-          player1Ref.current.switchAnimation('getHit');
-        } else {
-          // Player was defeated, trigger death animation
-          player1Ref.current.forceDeathAnimation();
-          player2Wins.current += 1;
-        }
-        
-        // Check game over conditions
-        if (player2Wins.current >= 2) {
-          // Game over, opponent wins
-          onPlayerAction?.({ 
-            type: 'gameOver', 
-            winner: 'player2' 
-          });
-        } else if (newHealth <= 0) {
-          // Start new round
-          setTimeout(() => {
-            round.current += 1;
-            player1Health.current = 100;
-            player2Health.current = 100;
-            setShowRoundText(true);
-            setRoundTextOpacity(1);
-          }, 2000);
-        }
-        
-        // Report hit to the parent component with updated health
-        onPlayerAction?.({ 
-          type: 'hit', 
-          damage: damage,
-          remainingHealth: newHealth 
-        });
-      }
-    },
+    getPlayerPosition,
+    receiveOpponentAttack,
+    updateOpponentDirection,
+    updateHealth,
     
-    updateOpponentPosition: (position) => {
-      // Update opponent position directly
-      if (position && player2Pos.current) {
-        player2Pos.current = position;
-      }
-    },
-    
-    // Expose health getters for real-time sync
+    // Add health getters for real-time sync
     getPlayerHealth: () => player1Health.current,
     getOpponentHealth: () => player2Health.current,
     
-    // Method to sync health from server
-    updateHealth: (playerHealth, opponentHealth) => {
-      if (typeof playerHealth === 'number' && playerHealth >= 0) {
-        player1Health.current = playerHealth;
+    // Sync health values for both players
+    syncHealthValues: (playerHealthValue, opponentHealthValue) => {
+      if (typeof playerHealthValue === 'number') {
+        player1Health.current = Math.max(0, playerHealthValue);
       }
-      if (typeof opponentHealth === 'number' && opponentHealth >= 0) {
-        player2Health.current = opponentHealth;
-      }
-      
-      // Trigger death animations if health reaches 0
-      if (player1Health.current <= 0 && player1Ref.current?.currentAnimation !== 'death') {
-        player1Ref.current.forceDeathAnimation();
-      }
-      if (player2Health.current <= 0 && player2Ref.current?.currentAnimation !== 'death') {
-        player2Ref.current.forceDeathAnimation();
+      if (typeof opponentHealthValue === 'number') {
+        player2Health.current = Math.max(0, opponentHealthValue);
       }
     },
     
-    // Enhanced method to update opponent's attack state for better sync
-    processOpponentAttack: (attackData) => {
-      if (!player2Ref.current || !attackData) return;
-      
-      const { type, hit, damage, timestamp } = attackData;
-      
-      // Prevent duplicate processing using timestamp
-      if (player2Attack.current.timestamp === timestamp) return;
-      
-      // Update attack state
-      player2Attack.current = { 
-        inProgress: true, 
-        type, 
-        timestamp,
-        hit,
-        damage 
-      };
-      
-      // Trigger attack animation
-      player2Ref.current.switchAnimation(type);
-      
-      // If attack hits player 1, apply damage
-      if (hit && damage > 0) {
-        const newHealth = Math.max(0, player1Health.current - damage);
-        player1Health.current = newHealth;
-        
-        // Trigger appropriate animation
-        if (newHealth > 0) {
-          player1Ref.current.switchAnimation('getHit');
-          player1Attack.current.wasHit = true;
-        } else {
-          player1Ref.current.forceDeathAnimation();
-        }
-        
-        // Report the hit
-        onPlayerAction?.({ 
-          type: 'hit', 
-          damage: damage,
-          remainingHealth: newHealth 
-        });
+    // For better animation synchronization
+    syncPlayerAnimations: (playerAnimationType, opponentAnimationType) => {
+      if (playerAnimationType && player1Ref.current) {
+        player1Ref.current.switchAnimation(playerAnimationType);
+      }
+      if (opponentAnimationType && player2Ref.current) {
+        player2Ref.current.switchAnimation(opponentAnimationType);
       }
     }
   }));
@@ -708,97 +703,9 @@ const GameCanvas = forwardRef(({
     };
 
     const drawHealthBars = () => {
-      const barWidth = 300;
-      const barHeight = 24;
-      const barMargin = 32;
-      const pixelSize = 10;
-
-      ctx.save();
-      ctx.globalAlpha = 1;
-
-      // Background bars
-      ctx.fillStyle = '#222';
+      // Removed the health bars drawing function since we're using GameHud component
       
-      // Player 1
-      ctx.fillRect(barMargin - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 4;
-      ctx.strokeRect(barMargin - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-
-      // Player 2
-      ctx.fillRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);
-      ctx.strokeRect(canvasWidth - barMargin - barWidth - 4, barMargin - 4, barWidth + 8, barHeight + 8);      // Health bars
-      ctx.fillStyle = '#e53935';
-      const p1pixels = Math.round((player1Health.current / 100) * (barWidth / pixelSize));
-      for (let i = 0; i < p1pixels; i++) {
-        ctx.fillRect(barMargin + i * pixelSize, barMargin, pixelSize - 1, barHeight);
-      }
-        // Add health number for player 1
-      ctx.font = 'bold 18px Arial';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(player1Health.current)}`, barMargin + barWidth / 2, barMargin + barHeight / 2 + 6);
-      
-      // Display player 1 stats
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'left';
-      ctx.fillStyle = '#ff6b6b'; // Red for attack
-      ctx.fillText(`ATK:${player1Stats.current.attack}`, barMargin, barMargin + barHeight + 20);
-      ctx.fillStyle = '#4dabf7'; // Blue for defense
-      ctx.fillText(`DEF:${player1Stats.current.defense}`, barMargin + 60, barMargin + barHeight + 20);
-      ctx.fillStyle = '#69db7c'; // Green for speed
-      ctx.fillText(`SPD:${player1Stats.current.speed}`, barMargin + 120, barMargin + barHeight + 20);
-
-      ctx.fillStyle = '#43a047';
-      const p2pixels = Math.round((player2Health.current / 100) * (barWidth / pixelSize));
-      for (let i = 0; i < p2pixels; i++) {
-        ctx.fillRect(canvasWidth - barMargin - (i + 1) * pixelSize, barMargin, pixelSize - 1, barHeight);
-      }
-      
-      // Add health number for player 2
-      ctx.font = 'bold 18px Arial';
-      ctx.fillStyle = '#ffffff';
-      ctx.textAlign = 'center';
-      ctx.fillText(`${Math.round(player2Health.current)}`, canvasWidth - barMargin - barWidth / 2, barMargin + barHeight / 2 + 6);
-      
-      // Display player 2 stats
-      ctx.font = 'bold 12px Arial';
-      ctx.textAlign = 'right';
-      ctx.fillStyle = '#ff6b6b'; // Red for attack
-      ctx.fillText(`ATK:${player2Stats.current.attack}`, canvasWidth - barMargin, barMargin + barHeight + 20);
-      ctx.fillStyle = '#4dabf7'; // Blue for defense
-      ctx.fillText(`DEF:${player2Stats.current.defense}`, canvasWidth - barMargin - 60, barMargin + barHeight + 20);
-      ctx.fillStyle = '#69db7c'; // Green for speed
-      ctx.fillText(`SPD:${player2Stats.current.speed}`, canvasWidth - barMargin - 120, barMargin + barHeight + 20);
-
-      // Win markers
-      for (let i = 0; i < player1Wins.current; i++) {
-        const startX = barMargin + i * 30;
-        const startY = barMargin + barHeight + 30;
-        ctx.strokeStyle = '#ff0000';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(startX - 12, startY - 12);
-        ctx.lineTo(startX + 12, startY + 12);
-        ctx.moveTo(startX + 12, startY - 12);
-        ctx.lineTo(startX - 12, startY + 12);
-        ctx.stroke();
-      }
-
-      for (let i = 0; i < player2Wins.current; i++) {
-        const startX = canvasWidth - barMargin - i * 30;
-        const startY = barMargin + barHeight + 30;
-        ctx.strokeStyle = '#0000ff';
-        ctx.lineWidth = 4;
-        ctx.beginPath();
-        ctx.moveTo(startX - 12, startY - 12);
-        ctx.lineTo(startX + 12, startY + 12);
-        ctx.moveTo(startX + 12, startY - 12);
-        ctx.lineTo(startX - 12, startY + 12);
-        ctx.stroke();
-      }
-
-      // Round text
+      // Only keep round text display
       if (showRoundText) {
         ctx.globalAlpha = roundTextOpacity;
         ctx.fillStyle = '#fff';
@@ -808,9 +715,8 @@ const GameCanvas = forwardRef(({
         ctx.fillText(`Round ${round.current}`, canvasWidth / 2, canvasHeight / 2);
         ctx.globalAlpha = 1; // Reset alpha
       }
-
-      ctx.restore();
-    };    // Combat system
+    };
+      // Combat system
     function getHitbox(player, width = 40, height = 120) {
       const offset = 150;
       
@@ -884,74 +790,119 @@ const GameCanvas = forwardRef(({
       return Math.max(damage, 1);
     }
       function checkAttackHit(attacker, defender, attackType, forceHit = false) {
-      // In online mode, if the hit was already determined by the attacker
-      // we should respect that determination
+      // If hit is forced (for online synchronization), skip collision check
       if (forceHit) {
-        const attackerStats = attacker === player1Ref.current ? player1Stats.current : player2Stats.current;
-        const defenderStats = defender === player1Ref.current ? player1Stats.current : player2Stats.current;
+        const isPlayer1 = attacker === player1Ref.current;
+        const damage = calculateDamage(
+          isPlayer1 ? player1Stats.current : player2Stats.current,
+          isPlayer1 ? player2Stats.current : player1Stats.current
+        );
         
-        // Different attack types can have different damage modifiers
-        let attackModifier = 1.0;
-        if (attackType === 'attack2') {
-          attackModifier = 1.2; // Heavy attack does more damage
+        // Apply damage directly for forced hits
+        if (isPlayer1) {
+          player2Health.current = Math.max(0, player2Health.current - damage);
+          player2Attack.current.wasHit = true;
+          player2Ref.current?.switchAnimation('getHit');
+        } else {
+          player1Health.current = Math.max(0, player1Health.current - damage);
+          player1Attack.current.wasHit = true;
+          player1Ref.current?.switchAnimation('getHit');
         }
         
-        return calculateDamage(attackerStats, defenderStats) * attackModifier;
+        return { hit: true, damage };
       }
       
-      // For local determination, check if attack hitbox collides with defender's body box
-      const attackHitbox = getHitbox(attacker);
-      const defenderBodyBox = getBodyBox(defender);
-      
-      const isInRange = isColliding(attackHitbox, defenderBodyBox);
-      
-      // If not in range, attack misses automatically
-      if (!isInRange) {
-        console.log('Attack missed: not in range');
-        return 0;
+      // Skip hit detection if defender is already dead
+      if ((defender === player1Ref.current && player1Health.current <= 0) || 
+          (defender === player2Ref.current && player2Health.current <= 0)) {
+        return { hit: false, damage: 0 };
       }
       
-      // Get stats
-      const attackerSpeed = attacker === player1Ref.current ? player1Stats.current.speed : player2Stats.current.speed;
-      const defenderSpeed = defender === player1Ref.current ? player1Stats.current.speed : player2Stats.current.speed;
+      // Adjust attack range based on attack type
+      let attackRange = 80; // Default range
+      if (attackType === 'attack2') attackRange = 100; // Heavy attack has longer range
       
-      // Calculate hit chance based on speed difference
-      const speedDifference = attackerSpeed - defenderSpeed;
-      const baseHitChance = 0.8 + (speedDifference * 0.03);
+      // Get hitboxes for attack detection
+      const attackerBox = getHitbox(attacker);
+      const defenderBox = getBodyBox(defender);
       
-      // Add some randomness to the hit chance
-      const roll = Math.random();
-      const didHit = roll <= baseHitChance;
+      // Check if attacker is facing defender
+      const attackerFacingRight = attacker.facing === 'right';
+      const attackerIsLeftOfDefender = attackerBox.x < defenderBox.x;
       
-      console.log('Attack calculation:', {
-        attackerSpeed,
-        defenderSpeed,
-        speedDifference,
-        baseHitChance,
-        roll,
-        didHit,
-        isInRange
-      });
+      // If not facing the right way, can't hit
+      if (attackerFacingRight !== attackerIsLeftOfDefender) {
+        return { hit: false, damage: 0 };
+      }
       
-      if (didHit) {
-        // Calculate damage with enhanced attack types
-        const attackerStats = attacker === player1Ref.current ? player1Stats.current : player2Stats.current;
-        const defenderStats = defender === player1Ref.current ? player1Stats.current : player2Stats.current;
+      // Check horizontal distance between players
+      const horizontalDistance = Math.abs(attackerBox.x - defenderBox.x);
+      
+      // Check if within attack range - slightly increased range for better online hit detection
+      const effectiveRange = gameMode === 'online' ? attackRange * 1.2 : attackRange;
+      if (horizontalDistance > effectiveRange) {
+        return { hit: false, damage: 0 };
+      }
+      
+      // Check vertical alignment (can't hit if too far above/below)
+      const verticalDistance = Math.abs(attackerBox.y - defenderBox.y);
+      if (verticalDistance > 50) {
+        return { hit: false, damage: 0 };
+      }
+      
+      // Basic collision detection with improved hit boxes for online play
+      const attackWidth = gameMode === 'online' ? 
+        attackRange + attackerBox.width * 0.6 : // Wider hit detection for online
+        attackRange + attackerBox.width * 0.5;  // Standard for local
         
-        // Different attack types can have different damage modifiers
-        let attackModifier = 1.0;
-        if (attackType === 'attack2') {
-          attackModifier = 1.2; // Heavy attack does more damage
+      const collision = isColliding({
+        x: attackerFacingRight ? attackerBox.x : attackerBox.x - attackRange,
+        y: attackerBox.y - 20,
+        width: attackWidth,
+        height: attackerBox.height
+      }, defenderBox);
+      
+      if (collision) {
+        // Hit confirmed - calculate damage based on stats
+        const isPlayer1 = attacker === player1Ref.current;
+        const damage = calculateDamage(
+          isPlayer1 ? player1Stats.current : player2Stats.current,
+          isPlayer1 ? player2Stats.current : player1Stats.current
+        );
+        
+        // Apply hit effects
+        if (isPlayer1) {
+          player2Health.current = Math.max(0, player2Health.current - damage);
+          player2Attack.current.wasHit = true;
+          player2Ref.current?.switchAnimation('getHit');
+          
+          // Add screen shake effect on successful hit
+          startHitEffect();
+        } else {
+          player1Health.current = Math.max(0, player1Health.current - damage);
+          player1Attack.current.wasHit = true;
+          player1Ref.current?.switchAnimation('getHit');
+          
+          // Add screen shake effect on successful hit
+          startHitEffect();
         }
         
-        const damage = calculateDamage(attackerStats, defenderStats) * attackModifier;
+        // For online mode, sync health update with server
+        if (gameMode === 'online') {
+          const hitEvent = {
+            type: 'attack', 
+            attackType,
+            hit: true,
+            damage,
+            position: isPlayer1 ? player1Pos.current : player2Pos.current
+          };
+          onPlayerAction?.(hitEvent);
+        }
         
-        console.log(`Attack hit! Damage: ${damage}`);
-        return Math.round(damage);
+        return { hit: true, damage };
       }
       
-      console.log('Attack missed: dodge');
-      return 0;
+      return { hit: false, damage: 0 };
     }
 
     const animate = () => {
@@ -1390,6 +1341,9 @@ const GameCanvas = forwardRef(({
       if (player1Ref.current?.currentAnimation === 'death' || 
           player2Ref.current?.currentAnimation === 'death') return;
           
+      // Calculate movement speed from player stats for use in this function
+      const player1MoveSpeed = baseSpeed + (player1Stats.current.speed * 0.3);
+      
       // Special handling for online mode
       if (gameMode === 'online') {
         // In online mode, only control player1 - reject all player2 controls
@@ -1407,7 +1361,8 @@ const GameCanvas = forwardRef(({
               type: 'move', 
               position: player1Pos.current,
               direction: 'right',
-              moving: true
+              moving: true,
+              velocity: { x: player1MoveSpeed, y: 0 }
             });
           }
           
@@ -1421,7 +1376,8 @@ const GameCanvas = forwardRef(({
               type: 'move', 
               position: player1Pos.current,
               direction: 'left',
-              moving: true
+              moving: true,
+              velocity: { x: -player1MoveSpeed, y: 0 }
             });
           }
           
@@ -1436,7 +1392,8 @@ const GameCanvas = forwardRef(({
               type: 'move',
               position: player1Pos.current,
               direction: 'up',
-              moving: true
+              moving: true,
+              velocity: { x: 0, y: player1Velocity.current.y }
             });
           }
           
@@ -1452,15 +1409,15 @@ const GameCanvas = forwardRef(({
               onPlayerAction?.({ 
                 type: 'attack', 
                 attackType: 'attack1', 
-                hit: damage > 0,
-                damage: damage,
+                hit: damage.hit,
+                damage: damage.damage,
                 position: player1Pos.current,
                 isCritical: true // Mark as critical to bypass rate limiting
               });
               
               // In online mode, apply immediate visual feedback but wait for server confirmation for actual damage
               if (gameMode === 'online') {
-                if (damage > 0) {
+                if (damage.hit) {
                   // Show hit animation immediately for responsive gameplay
                   player2Ref.current.switchAnimation('getHit');
                   player2Attack.current.wasHit = true;
@@ -1469,8 +1426,8 @@ const GameCanvas = forwardRef(({
                 }
               } else {
                 // In local modes, apply damage immediately
-                if (damage > 0) {
-                  player2Health.current = Math.max(0, player2Health.current - damage);
+                if (damage.hit) {
+                  player2Health.current = Math.max(0, player2Health.current - damage.damage);
                   player2Ref.current.switchAnimation('getHit');
                   player2Attack.current.wasHit = true;
                 }
@@ -1490,15 +1447,15 @@ const GameCanvas = forwardRef(({
               onPlayerAction?.({ 
                 type: 'attack', 
                 attackType: 'attack2', 
-                hit: damage > 0,
-                damage: damage,
+                hit: damage.hit,
+                damage: damage.damage,
                 position: player1Pos.current,
                 isCritical: true // Mark as critical to bypass rate limiting
               });
               
               // In online mode, apply immediate visual feedback but wait for server confirmation for actual damage
               if (gameMode === 'online') {
-                if (damage > 0) {
+                if (damage.hit) {
                   // Show hit animation immediately for responsive gameplay
                   player2Ref.current.switchAnimation('getHit');
                   player2Attack.current.wasHit = true;
@@ -1507,8 +1464,8 @@ const GameCanvas = forwardRef(({
                 }
               } else {
                 // In local modes, apply damage immediately
-                if (damage > 0) {
-                  player2Health.current = Math.max(0, player2Health.current - damage);
+                if (damage.hit) {
+                  player2Health.current = Math.max(0, player2Health.current - damage.damage);
                   player2Ref.current.switchAnimation('getHit');
                   player2Attack.current.wasHit = true;
                 }
@@ -1517,7 +1474,6 @@ const GameCanvas = forwardRef(({
           }
         }
         
-        // In online mode, completely block all player2 controls and any unrecognized keys
         // Exit early to prevent any player2 control processing
         return;
       }
@@ -1547,9 +1503,9 @@ const GameCanvas = forwardRef(({
         // Check if attack hits and apply damage
         if (player2Ref.current) {
           const damage = checkAttackHit(player1Ref.current, player2Ref.current, 'attack1');
-          if (damage > 0) {
+          if (damage.hit) {
             // Apply damage to player 2
-            player2Health.current = Math.max(0, player2Health.current - damage);
+            player2Health.current = Math.max(0, player2Health.current - damage.damage);
             player2Ref.current.switchAnimation('getHit');
             player2Attack.current.wasHit = true;
             
@@ -1559,13 +1515,13 @@ const GameCanvas = forwardRef(({
               player: 'player1', 
               attackType: 'attack1', 
               hit: true,
-              damage: damage
+              damage: damage.damage
             });
             
             // Trigger damage event
             handleGameEvent('damage', { 
               target: 'player2', 
-              amount: damage, 
+              amount: damage.damage, 
               source: 'player1',
               attackType: 'attack1'
             });
@@ -1580,9 +1536,9 @@ const GameCanvas = forwardRef(({
         // Check if attack hits and apply damage
         if (player2Ref.current) {
           const damage = checkAttackHit(player1Ref.current, player2Ref.current, 'attack2');
-          if (damage > 0) {
+          if (damage.hit) {
             // Apply damage to player 2
-            player2Health.current = Math.max(0, player2Health.current - damage);
+            player2Health.current = Math.max(0, player2Health.current - damage.damage);
             player2Ref.current.switchAnimation('getHit');
             player2Attack.current.wasHit = true;
             
@@ -1592,13 +1548,13 @@ const GameCanvas = forwardRef(({
               player: 'player1', 
               attackType: 'attack2', 
               hit: true,
-              damage: damage
+              damage: damage.damage
             });
             
             // Trigger damage event
             handleGameEvent('damage', { 
               target: 'player2', 
-              amount: damage, 
+              amount: damage.damage, 
               source: 'player1',
               attackType: 'attack2'
             });
@@ -1639,9 +1595,9 @@ const GameCanvas = forwardRef(({
         // Check if attack hits and apply damage
         if (player1Ref.current) {
           const damage = checkAttackHit(player2Ref.current, player1Ref.current, 'attack1');
-          if (damage > 0) {
+          if (damage.hit) {
             // Apply damage to player 1
-            player1Health.current = Math.max(0, player1Health.current - damage);
+            player1Health.current = Math.max(0, player1Health.current - damage.damage);
             player1Ref.current.switchAnimation('getHit');
             player1Attack.current.wasHit = true;
             
@@ -1651,13 +1607,13 @@ const GameCanvas = forwardRef(({
               player: 'player2', 
               attackType: 'attack1', 
               hit: true,
-              damage: damage 
+              damage: damage.damage 
             });
             
             // Trigger damage event
             handleGameEvent('damage', { 
               target: 'player1', 
-              amount: damage, 
+              amount: damage.damage, 
               source: 'player2',
               attackType: 'attack1'
             });
@@ -1672,9 +1628,9 @@ const GameCanvas = forwardRef(({
         // Check if attack hits and apply damage
         if (player1Ref.current) {
           const damage = checkAttackHit(player2Ref.current, player1Ref.current, 'attack2');
-          if (damage > 0) {
+          if (damage.hit) {
             // Apply damage to player 1
-            player1Health.current = Math.max(0, player1Health.current - damage);
+            player1Health.current = Math.max(0, player1Health.current - damage.damage);
             player1Ref.current.switchAnimation('getHit');
             player1Attack.current.wasHit = true;
             
@@ -1684,13 +1640,13 @@ const GameCanvas = forwardRef(({
               player: 'player2', 
               attackType: 'attack2', 
               hit: true,
-              damage: damage
+              damage: damage.damage
             });
             
             // Trigger damage event
             handleGameEvent('damage', { 
               target: 'player1', 
-              amount: damage, 
+              amount: damage.damage, 
               source: 'player2',
               attackType: 'attack2'
             });
@@ -1865,6 +1821,157 @@ const GameCanvas = forwardRef(({
       }
     }
   }, [gameMode, opponentAttack, onPlayerAction]);
+
+  // Get current player position for attack synchronization
+  const getPlayerPosition = () => {
+    if (!player1Ref.current) {
+      return player1Pos.current;
+    }
+    
+    // Get the current hitbox for more accurate position data
+    const hitbox = createHitbox(player1Ref.current);
+    
+    return {
+      x: player1Pos.current.x,
+      y: player1Pos.current.y,
+      facing: player1Ref.current.facing,
+      hitboxX: hitbox.x,
+      hitboxY: hitbox.y,
+      hitboxWidth: hitbox.width,
+      hitboxHeight: hitbox.height,
+      animation: player1Ref.current.currentAnimation
+    };
+  };
+  
+  // Handle opponent attack coming from server
+  const receiveOpponentAttack = (attackData) => {
+    if (!player1Ref.current || !player2Ref.current) return;
+    
+    try {
+      const opponentNeedsToAttack = gameMode === 'online';
+      
+      if (opponentNeedsToAttack) {
+        // Update opponent animation to attack
+        player2Ref.current.switchAnimation(attackData.attackType || 'attack1');
+        player2Attack.current = { 
+          inProgress: true, 
+          type: attackData.attackType || 'attack1',
+          timestamp: Date.now()
+        };
+        
+        // If we have position data, update opponent position to ensure accurate hit detection
+        if (attackData.position) {
+          const currentPos = player2Pos.current;
+          const newPos = attackData.position;
+          const distance = Math.sqrt(
+            Math.pow(currentPos.x - newPos.x, 2) + 
+            Math.pow(currentPos.y - newPos.y, 2)
+          );
+          
+          // Only update if the position difference isn't too large (avoid teleporting)
+          if (distance < 100) {
+            player2Pos.current.x += (newPos.x - currentPos.x) * 0.3;
+            player2Pos.current.y = newPos.y; // Y position is more critical for hit detection
+          }
+        }
+        
+        // Handle hit effects if the attack was successful
+        if (attackData.hit) {
+          // Apply damage to player with health check
+          const damage = attackData.damage || 10;
+          const newHealth = Math.max(0, player1Health.current - damage);
+          
+          // Store previous health for change detection
+          const previousHealth = player1Health.current;
+          player1Health.current = newHealth;
+          
+          // If health changed, trigger effects
+          if (previousHealth !== newHealth) {
+            // Show hit effects
+            player1Ref.current.switchAnimation('getHit');
+            player1Attack.current.wasHit = true;
+            
+            // Apply screen shake for hit feedback
+            startHitEffect();
+            
+            // Play hit sound
+            playSound('hit');
+            
+            // Report damage to parent component for synchronization
+            onPlayerAction?.({
+              type: 'hit',
+              damage,
+              remainingHealth: newHealth
+            });
+            
+            // If this killed the player, trigger death
+            if (newHealth <= 0 && previousHealth > 0) {
+              // Show death animation
+              player1Ref.current.forceDeathAnimation();
+              
+              // Increase opponent wins
+              player2Wins.current += 1;
+              
+              // Check if game is over
+              if (player2Wins.current >= 2) {
+                onPlayerAction?.({
+                  type: 'gameOver',
+                  winner: 'player2'
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error handling opponent attack:", error);
+    }
+  };
+  
+  // Helper function to start hit effects
+  const startHitEffect = () => {
+    // Apply screen shake
+    const canvasElement = canvasRef.current;
+    if (canvasElement) {
+      canvasElement.classList.add('shake');
+      setTimeout(() => {
+        canvasElement.classList.remove('shake');
+      }, 300);
+    }
+  };
+  
+  // Update opponent direction (used for online sync)
+  const updateOpponentDirection = (direction) => {
+    if (!player2Ref.current) return;
+    
+    if (direction === 'left') {
+      player2Ref.current.faceLeft = true;
+      player2Ref.current.setFacing('left');
+      player2Ref.current.switchAnimation('run');
+    } else if (direction === 'right') {
+      player2Ref.current.faceLeft = false;
+      player2Ref.current.setFacing('right');
+      player2Ref.current.switchAnimation('run');
+    } else if (direction === 'idle' || direction === 'stop') {
+      // Stop movement when receiving idle/stop command
+      player2Velocity.current.x = 0;
+      player2Ref.current.switchAnimation('idle');
+    }
+  };
+  
+  // Update health values directly from server
+  const updateHealth = (playerHealth, opponentHealth) => {
+    player1Health.current = playerHealth;
+    player2Health.current = opponentHealth;
+    
+    // Trigger death animations if health reaches 0
+    if (player1Health.current <= 0 && player1Ref.current?.currentAnimation !== 'death') {
+      player1Ref.current.forceDeathAnimation();
+    }
+    if (player2Health.current <= 0 && player2Ref.current?.currentAnimation !== 'death') {
+      player2Ref.current.forceDeathAnimation();
+    }
+  };
 
   return (
     <div className="w-screen h-screen m-0 p-0 bg-black flex items-center justify-center">

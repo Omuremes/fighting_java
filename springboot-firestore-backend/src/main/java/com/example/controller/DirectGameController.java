@@ -58,9 +58,8 @@ public class DirectGameController {
     @PostMapping({"/action", "/action/"})
     public ResponseEntity<Game> processAction(@RequestBody GameAction action) {
         logger.info("=== Processing action on /games/action ===");
-        logger.info("Action details: gameId={}, playerId={}, actionType={}, direction={}, attackType={}", 
-                  action.getGameId(), action.getPlayerId(), action.getActionType(), 
-                  action.getDirection(), action.getAttackType());
+        logger.info("Action details: gameId={}, playerId={}, type={}", 
+                  action.getGameId(), action.getPlayerId(), action.getType());
         
         try {
             Game updatedGame = gameService.processAction(action);

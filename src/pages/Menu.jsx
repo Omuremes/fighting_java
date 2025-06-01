@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import CharacterSelect from '../components/CharacterSelect';
+import apiService from '../services/api';
 
 const Menu = () => {
   const { currentUser, logout, getRoomData } = useAuth();
@@ -12,7 +13,7 @@ const Menu = () => {
   const [showCharacterSelect, setShowCharacterSelect] = useState(false);
   const [pendingGameMode, setPendingGameMode] = useState(null);
   const [selectingPlayerNumber, setSelectingPlayerNumber] = useState(1); // Какой игрок выбирает персонажа (1 или 2)
-  const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого иг��ока
+  const [player1Character, setPlayer1Character] = useState(null); // Персонаж первого игрока
   const [player2Character, setPlayer2Character] = useState(null); // Персонаж второго игрока
 
   useEffect(() => {
@@ -33,39 +34,6 @@ const Menu = () => {
   };
   
   const handleCharacterSelect = async (character) => {
-    if (pendingGameMode === 'two-players') {
-      // Для двух игроков на одном устройстве
-      if (selectingPlayerNumber === 1) {
-        // Сохраняем выбор первого игрока и переходим к выбору второго
-        const firstPlayer = {
-          ...character,
-          spritePath: `/assets/${character.id}/Sprites/`
-        };
-        setPlayer1Character(firstPlayer);
-        setSelectingPlayerNumber(2);
-        return; // Не закрываем окно выбора, продолжаем для второго игрока
-      } else {
-        // Сохраняем выбор второго игрока
-        const secondPlayer = {
-          ...character,
-          spritePath: `/assets/${character.id}/Sprites/`
-        };
-        setPlayer2Character(secondPlayer);
-        setSelectingPlayerNumber(1); // Сбрасываем для следующего раза
-        setShowCharacterSelect(false);
-        
-        // Переходим к игре с выбранными персонажами для обоих игроков
-        navigate('/game/two-players', { 
-          state: { 
-            player1Character: player1Character,
-            player2Character: secondPlayer 
-          } 
-        });
-        return;
-      }
-    }
-    
-    // Для других режимов (одиночной игры или онлайн)
     setShowCharacterSelect(false);
     
     // Переходим к игре с выбранным персонажем
@@ -74,25 +42,19 @@ const Menu = () => {
     } else if (pendingGameMode === 'online') {
       // For online mode, create room via backend API
       try {
-        // Call backend API to create room
-        const response = await fetch('/api/rooms', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            hostId: currentUser.uid,
-            hostName: currentUser.name || currentUser.email,
-            hostCharacter: character
-          }),
-          credentials: 'include'
-        });
-
-        if (!response.ok) {
-          throw new Error(`Failed to create room: ${response.status}`);
+        // Check server health first
+        const isServerHealthy = await apiService.healthCheck().catch(() => false);
+        if (!isServerHealthy) {
+          throw new Error('SERVER_UNAVAILABLE');
         }
-
-        const room = await response.json();
+        
+        // Use apiService instead of direct fetch
+        const room = await apiService.createRoom(
+          currentUser.uid,
+          currentUser.name || currentUser.email,
+          character
+        );
+        
         console.log('Room created via backend:', room);
 
         // Navigate to the room with the backend-generated room ID
@@ -105,7 +67,28 @@ const Menu = () => {
         });
       } catch (error) {
         console.error('Error creating room:', error);
-        alert('Ошибка при создании комнаты. Пожалуйста, попробуйте еще раз.');
+        
+        // Show appropriate error message
+        let errorMessage = 'Ошибка при создании комнаты. Пожалуйста, попробуйте еще раз.';
+        
+        if (error.message === 'SERVER_UNAVAILABLE') {
+          errorMessage = 'Сервер недоступен. Пожалуйста, попробуйте позже.';
+        } else if (error.status === 400) {
+          errorMessage = 'Неверный формат данных. Проверьте данные и попробуйте снова.';
+        } else if (error.status === 401) {
+          errorMessage = 'Необходима авторизация. Пожалуйста, войдите снова.';
+          // Force logout and redirect to login
+          logout().then(() => navigate('/login'));
+          return;
+        } else if (error.status === 403) {
+          errorMessage = 'Доступ запрещен. У вас нет прав для выполнения этого действия.';
+        } else if (error.status === 429) {
+          errorMessage = 'Слишком много запросов. Пожалуйста, подождите немного и попробуйте снова.';
+        } else if (error.status >= 500) {
+          errorMessage = 'Ошибка сервера. Пожалуйста, попробуйте позже.';
+        }
+        
+        alert(errorMessage);
       }
     } else if (pendingGameMode === 'join-room') {
       // Для присоединения к комнате
@@ -125,10 +108,22 @@ const Menu = () => {
     }
   };
 
-  const handleCreateRoom = () => {
-    // Показываем выбор персонажа перед созданием комнаты
-    setPendingGameMode('online');
-    setShowCharacterSelect(true);
+  const handleCreateRoom = async () => {
+    try {
+      // First check if server is available
+      const isServerHealthy = await apiService.healthCheck().catch(() => false);
+      if (!isServerHealthy) {
+        alert('Сервер недоступен. Пожалуйста, попробуйте позже.');
+        return;
+      }
+      
+      // Показываем выбор персонажа перед созданием комнаты
+      setPendingGameMode('online');
+      setShowCharacterSelect(true);
+    } catch (error) {
+      console.error('Error checking server health:', error);
+      alert('Не удалось подключиться к серверу. Пожалуйста, попробуйте позже.');
+    }
   };
   
   const handleJoinRoom = async () => {

@@ -129,12 +129,12 @@ public class GameService {
             return null; // Invalid player
         }
 
-        switch (action.getActionType()) {
+        switch (action.getType()) {
             case "move":
-                handleMoveAction(player, action.getDirection());
+                handleMoveAction(player, (String) action.getData().get("direction"));
                 break;
             case "attack":
-                handleAttackAction(player, opponent, action.getAttackType());
+                handleAttackAction(player, opponent, (String) action.getData().get("attackType"));
                 break;
             case "jump":
                 player.setCurrentAnimation("jump");
@@ -176,32 +176,34 @@ public class GameService {
         attacker.setAttacking(true);
         attacker.setCurrentAnimation(attackType);
 
-        // Вычисляем урон в зависимости от типа атаки
+        // Calculate damage based on attack type
         int damage = ATTACK_DAMAGE;
         if ("attack2".equals(attackType)) {
-            damage = ATTACK_DAMAGE + 5; // Усиленная атака
+            damage = ATTACK_DAMAGE + 5; // Enhanced attack
+        } else if ("attack3".equals(attackType)) {
+            damage = ATTACK_DAMAGE + 8; // Special attack
         }
         
-        // Проверяем расстояние между игроками для определения попадания
+        // Check distance between players for hit detection
         int attackerX = attacker.getX();
         int defenderX = defender.getX();
         int distance = Math.abs(attackerX - defenderX);
         
-        // Дистанция атаки (половина ширины персонажа + небольшое расстояние)
+        // Attack range (half character width + some distance)
         int attackRange = PLAYER_WIDTH / 2 + 50;
         
-        // Проверяем, что атакующий повернут в сторону защищающегося
+        // Check if attacker is facing the defender
         boolean facingRight = "right".equals(attacker.getFacing());
         boolean defenderIsRight = attackerX < defenderX;
         
         boolean canHit = distance <= attackRange && (facingRight == defenderIsRight);
         
-        // Логгирование для отладки
+        // Log attack details for debugging
         logger.debug("Attack info - Attacker: {} Facing: {} Position: {} Defender position: {} Distance: {} Range: {} Can hit: {}",
                     attacker.getId(), attacker.getFacing(), attackerX, defenderX, distance, attackRange, canHit);
         
-        // Если можем попасть, наносим урон
-        if (canHit || true) { // Убрать "|| true" когда захотите включить точный расчет попаданий
+        // Apply damage if hit is valid
+        if (canHit) {
             int newHealth = Math.max(0, defender.getHealth() - damage);
             logger.debug("Damage calculation: current health={} damage={} new health={}", 
                         defender.getHealth(), damage, newHealth);
@@ -215,7 +217,7 @@ public class GameService {
     }
 
     // 💾 Save to Firestore and update cache
-    private void updateGame(Game game) throws ExecutionException, InterruptedException {
+    public void updateGame(Game game) throws ExecutionException, InterruptedException {
         activeGames.put(game.getId(), game);
         firestore.collection("games").document(game.getId()).set(game).get();
     }

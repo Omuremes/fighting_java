@@ -1,27 +1,133 @@
-import React from 'react';
-import { useAuth } from '../contexts/AuthContext';
+import React, { useEffect, useRef, useState } from 'react';
 
-const GameHud = () => {
-  const { currentUser } = useAuth();
+const GameHud = ({ player1Character, player2Character, player1Health, player2Health }) => {
+  // Keep refs to previous health values for animation
+  const prevPlayer1Health = useRef(player1Health);
+  const prevPlayer2Health = useRef(player2Health);
+  const player1BarRef = useRef(null);
+  const player2BarRef = useRef(null);
   
-  if (!currentUser) {
-    return null; // Ничего не отображаем, если пользователь не авторизован
-  }
-
+  // Track animation states
+  const [player1Damaged, setPlayer1Damaged] = useState(false);
+  const [player2Damaged, setPlayer2Damaged] = useState(false);
+  
+  // Add flash effect when health decreases
+  useEffect(() => {
+    // Check if health decreased
+    if (player1Health < prevPlayer1Health.current && player1BarRef.current) {
+      // Add flash effect
+      player1BarRef.current.classList.add('health-decrease');
+      setPlayer1Damaged(true);
+      
+      // Play damage sound effect
+      playDamageSound();
+      
+      // Remove class after animation completes
+      setTimeout(() => {
+        if (player1BarRef.current) {
+          player1BarRef.current.classList.remove('health-decrease');
+        }
+        
+        setTimeout(() => setPlayer1Damaged(false), 200);
+      }, 500);
+    }
+    
+    // Update previous health
+    prevPlayer1Health.current = player1Health;
+  }, [player1Health]);
+  
+  // Add flash effect when opponent health decreases
+  useEffect(() => {
+    // Check if health decreased
+    if (player2Health < prevPlayer2Health.current && player2BarRef.current) {
+      // Add flash effect
+      player2BarRef.current.classList.add('health-decrease');
+      setPlayer2Damaged(true);
+      
+      // Play damage sound effect
+      playDamageSound();
+      
+      // Remove class after animation completes
+      setTimeout(() => {
+        if (player2BarRef.current) {
+          player2BarRef.current.classList.remove('health-decrease');
+        }
+        
+        setTimeout(() => setPlayer2Damaged(false), 200);
+      }, 500);
+    }
+    
+    // Update previous health
+    prevPlayer2Health.current = player2Health;
+  }, [player2Health]);
+  
+  // Simple sound effect function (can be replaced with actual sound implementation)
+  const playDamageSound = () => {
+    try {
+      // This is a placeholder - in a real implementation you'd use the Web Audio API
+      // or an audio library to play actual sounds
+      console.log("Playing damage sound effect");
+      
+      // Example of actual sound implementation (commented out)
+      // const sound = new Audio('/assets/sounds/hit.mp3');
+      // sound.volume = 0.7;
+      // sound.play().catch(err => console.error("Error playing sound:", err));
+    } catch (error) {
+      console.error("Error playing sound:", error);
+    }
+  };
+  
   return (
-    <div className="absolute top-2 left-2 z-10">
-      <div className="flex space-x-2">
-        <div className="flex items-center bg-yellow-700 bg-opacity-90 px-3 py-1 rounded-md">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-yellow-400 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-          </svg>
-          <span className="text-yellow-400 font-bold">{currentUser.coin || 0}</span>
+    <div className="absolute top-4 left-0 right-0 z-10 flex justify-between px-8">
+      {/* Player 1 (current player) */}
+      <div className="flex flex-col items-start">
+        <div className={`text-white font-bold text-xl mb-1 ${player1Damaged ? 'animate-pulse text-red-500' : ''}`}>
+          {player1Character?.name || 'Player 1'}
         </div>
-        <div className="flex items-center bg-purple-900 bg-opacity-90 px-3 py-1 rounded-md">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-purple-400 mr-1" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M12 7a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0V8.414l-4.293 4.293a1 1 0 01-1.414 0L8 10.414l-4.293 4.293a1 1 0 01-1.414-1.414l5-5a1 1 0 011.414 0L11 10.586 14.586 7H12z" clipRule="evenodd" />
-          </svg>
-          <span className="text-purple-400 font-bold">{currentUser.gem || 0}</span>
+        <div className="relative w-64 h-6 bg-gray-800 rounded-full overflow-hidden border-2 border-white">
+          <div 
+            ref={player1BarRef}
+            className={`absolute top-0 left-0 h-full bg-red-600 transition-all duration-300 ${player1Health < 25 ? 'health-critical' : ''}`}
+            style={{ width: `${Math.max(0, player1Health)}%` }}
+          ></div>
+          <div 
+            className="absolute top-0 left-0 h-full bg-white opacity-30 transition-all duration-150" 
+            style={{ 
+              width: `${Math.max(0, player1Health)}%`,
+              transform: player1Damaged ? 'scaleX(1.05)' : 'scaleX(1)'
+            }}
+          ></div>
+          <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+            <span className={`font-bold text-sm drop-shadow-lg ${player1Damaged ? 'text-red-300' : 'text-white'} ${player1Health < 25 ? 'animate-pulse text-red-200' : ''}`}>
+              {Math.max(0, Math.round(player1Health))}%
+            </span>
+          </div>
+        </div>
+      </div>
+      
+      {/* Player 2 (opponent) */}
+      <div className="flex flex-col items-end">
+        <div className={`text-white font-bold text-xl mb-1 ${player2Damaged ? 'animate-pulse text-red-500' : ''}`}>
+          {player2Character?.name || 'Player 2'}
+        </div>
+        <div className="relative w-64 h-6 bg-gray-800 rounded-full overflow-hidden border-2 border-white">
+          <div 
+            ref={player2BarRef}
+            className={`absolute top-0 right-0 h-full bg-blue-600 transition-all duration-300 ${player2Health < 25 ? 'health-critical' : ''}`}
+            style={{ width: `${Math.max(0, player2Health)}%` }}
+          ></div>
+          <div 
+            className="absolute top-0 right-0 h-full bg-white opacity-30 transition-all duration-150" 
+            style={{ 
+              width: `${Math.max(0, player2Health)}%`,
+              transform: player2Damaged ? 'scaleX(1.05)' : 'scaleX(1)'
+            }}
+          ></div>
+          <div className="absolute top-0 left-0 w-full h-full flex items-center justify-center">
+            <span className={`font-bold text-sm drop-shadow-lg ${player2Damaged ? 'text-red-300' : 'text-white'} ${player2Health < 25 ? 'animate-pulse text-red-200' : ''}`}>
+              {Math.max(0, Math.round(player2Health))}%
+            </span>
+          </div>
         </div>
       </div>
     </div>

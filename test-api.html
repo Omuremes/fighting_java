@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+        button {
+            padding: 10px;
+            margin: 10px 0;
+            cursor: pointer;
+        }
+        pre {
+            background-color: #f4f4f4;
+            padding: 10px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Test Page</h1>
+    
+    <h2>Create Room Test (Direct Backend)</h2>
+    <button id="createRoomDirect">Create Room Direct</button>
+    <pre id="createRoomDirectResult">Results will appear here...</pre>
+    
+    <h2>Create Room Test (Through React Proxy)</h2>
+    <button id="createRoomProxy">Create Room via Proxy</button>
+    <pre id="createRoomProxyResult">Results will appear here...</pre>
+    
+    <h2>Get All Rooms Test (Direct Backend)</h2>
+    <button id="getRoomsDirect">Get Rooms Direct</button>
+    <pre id="getRoomsDirectResult">Results will appear here...</pre>
+    
+    <script>
+        // Direct backend test
+        document.getElementById('createRoomDirect').addEventListener('click', async () => {
+            const resultElement = document.getElementById('createRoomDirectResult');
+            resultElement.textContent = 'Loading...';
+            
+            try {
+                // Test direct backend
+                const response = await fetch('http://localhost:8082/api/rooms', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*'
+                    },
+                    body: JSON.stringify({
+                        hostId: 'testuser-' + Date.now(),
+                        hostName: 'Test User',
+                        hostCharacter: {
+                            id: 'wizard',
+                            name: 'Wizard'
+                        }
+                    })
+                });
+                
+                const data = await response.json();
+                resultElement.textContent = 'Status: ' + response.status + '\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                console.error('Error:', error);
+            }
+        });
+        
+        // Proxy test
+        document.getElementById('createRoomProxy').addEventListener('click', async () => {
+            const resultElement = document.getElementById('createRoomProxyResult');
+            resultElement.textContent = 'Loading...';
+            
+            try {
+                // Test through React proxy
+                const response = await fetch('/api/rooms', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        hostId: 'testuser-' + Date.now(),
+                        hostName: 'Test User',
+                        hostCharacter: {
+                            id: 'wizard',
+                            name: 'Wizard'
+                        }
+                    })
+                });
+                
+                const data = await response.json();
+                resultElement.textContent = 'Status: ' + response.status + '\n' + JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                console.error('Error:', error);
+            }
+        });
+        
+        // Get All Rooms Test
+        document.getElementById('getRoomsDirect').addEventListener('click', async () => {
+            const resultElement = document.getElementById('getRoomsDirectResult');
+            resultElement.textContent = 'Loading...';
+            
+            try {
+                // Test direct backend
+                const response = await fetch('http://localhost:8082/api/rooms', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultElement.textContent = 'Status: ' + response.status + '\n' + JSON.stringify(data, null, 2);
+                } else {
+                    resultElement.textContent = 'Error: ' + response.status + ' - ' + response.statusText;
+                    // Try to read error response
+                    try {
+                        const errorText = await response.text();
+                        resultElement.textContent += '\n\nError details: ' + errorText;
+                    } catch (e) {
+                        resultElement.textContent += '\n\nCould not read error details.';
+                    }
+                }
+            } catch (error) {
+                resultElement.textContent = 'Error: ' + error.message;
+                console.error('Error:', error);
+            }
+        });
+    </script>
+</body>
+</html> 

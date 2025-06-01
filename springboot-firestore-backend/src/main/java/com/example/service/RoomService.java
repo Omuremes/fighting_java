@@ -38,19 +38,28 @@ public class RoomService {
             throws ExecutionException, InterruptedException {
         
         logger.info("Creating room for host: {} ({})", hostName, hostId);
+        logger.debug("Host character data: {}", hostCharacter);
         
-        Room room = new Room(hostId, hostName, hostCharacter);
-        
-        // Save to Firestore
-        DocumentReference docRef = firestore.collection("rooms").document(room.getRoomId());
-        ApiFuture<WriteResult> result = docRef.set(room);
-        result.get(); // Wait for completion
-        
-        // Add to local cache
-        activeRooms.put(room.getRoomId(), room);
-        
-        logger.info("Room created successfully: {}", room.getRoomId());
-        return room;
+        try {
+            Room room = new Room(hostId, hostName, hostCharacter);
+            logger.debug("Room object created: {}", room.getRoomId());
+            
+            // Save to Firestore
+            DocumentReference docRef = firestore.collection("rooms").document(room.getRoomId());
+            logger.debug("Saving room to Firestore with ID: {}", room.getRoomId());
+            
+            ApiFuture<WriteResult> result = docRef.set(room);
+            result.get(); // Wait for completion
+            
+            // Add to local cache
+            activeRooms.put(room.getRoomId(), room);
+            
+            logger.info("Room created successfully: {}", room.getRoomId());
+            return room;
+        } catch (Exception e) {
+            logger.error("Error creating room", e);
+            throw e; // Re-throw to propagate to controller
+        }
     }
 
     // Join an existing room
@@ -166,11 +175,16 @@ public class RoomService {
         QuerySnapshot querySnapshot = future.get();
         
         for (QueryDocumentSnapshot document : querySnapshot.getDocuments()) {
-            Room room = document.toObject(Room.class);
-            if (room != null) {
-                rooms.add(room);
-                // Update cache
-                activeRooms.put(room.getRoomId(), room);
+            try {
+                Room room = document.toObject(Room.class);
+                if (room != null) {
+                    rooms.add(room);
+                    // Update cache
+                    activeRooms.put(room.getRoomId(), room);
+                }
+            } catch (Exception e) {
+                logger.error("Error converting document to Room: {}", document.getId(), e);
+                // Continue processing other documents even if this one fails
             }
         }
         
@@ -210,20 +224,28 @@ public class RoomService {
 
     // Clean up old/completed rooms (utility method)
     public void cleanupOldRooms() throws ExecutionException, InterruptedException {
-        long cutoffTime = System.currentTimeMillis() - (24 * 60 * 60 * 1000); // 24 hours ago
+        String cutoffTime = String.valueOf(System.currentTimeMillis() - (24 * 60 * 60 * 1000)); // 24 hours ago
         
         List<Room> allRooms = getAllRooms();
         int removedCount = 0;
         
         for (Room room : allRooms) {
             // Remove rooms that are completed or very old
-            if ("completed".equals(room.getStatus()) || room.getLastUpdated() < cutoffTime) {
-                try {
-                    removeRoom(room.getRoomId());
-                    removedCount++;
-                } catch (Exception e) {
-                    logger.warn("Failed to remove old room: {}", room.getRoomId(), e);
+            try {
+                // Compare as longs to handle proper time comparison
+                long roomLastUpdated = Long.parseLong(room.getLastUpdated());
+                long cutoffTimeLong = Long.parseLong(cutoffTime);
+                
+                if ("completed".equals(room.getStatus()) || roomLastUpdated < cutoffTimeLong) {
+                    try {
+                        removeRoom(room.getRoomId());
+                        removedCount++;
+                    } catch (Exception e) {
+                        logger.warn("Failed to remove old room: {}", room.getRoomId(), e);
+                    }
                 }
+            } catch (NumberFormatException e) {
+                logger.warn("Could not parse lastUpdated time for room {}: {}", room.getRoomId(), room.getLastUpdated());
             }
         }
         

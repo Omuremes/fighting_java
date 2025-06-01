@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Room API Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .test-section {
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            margin-bottom: 10px;
+        }
+        #response {
+            white-space: pre-wrap;
+            border: 1px solid #ddd;
+            padding: 10px;
+            background-color: #f9f9f9;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .button-row {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .success {
+            color: green;
+        }
+        .error {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <h1>API Test Page</h1>
+    
+    <div class="test-section">
+        <h2>Health Check</h2>
+        <button onclick="testHealthCheck()">Check Server Health</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Test Firestore</h2>
+        <button onclick="testFirestore()">Test Firestore Connection</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Debug Room Creation</h2>
+        <textarea id="debugRoomPayload">{
+  "hostId": "test-user-123",
+  "hostName": "Debug User",
+  "hostCharacter": {
+    "id": "player1",
+    "name": "Knight",
+    "stats": {
+      "attack": 5,
+      "defense": 5,
+      "speed": 5
+    }
+  }
+}</textarea>
+        <button onclick="testDebugRoom()">Create Debug Room</button>
+    </div>
+    
+    <div class="test-section">
+        <h2>Create Room</h2>
+        <textarea id="createRoomPayload">{
+  "hostId": "test-user-123",
+  "hostName": "Test User",
+  "hostCharacter": {
+    "id": "player1",
+    "name": "Knight",
+    "stats": {
+      "attack": 5,
+      "defense": 5,
+      "speed": 5
+    }
+  }
+}</textarea>
+        <div class="button-row">
+            <button onclick="testCreateRoom()">Create Room</button>
+            <button onclick="listRooms()">List All Rooms</button>
+        </div>
+    </div>
+    
+    <div class="test-section">
+        <h2>Response</h2>
+        <div id="response">No response yet</div>
+    </div>
+    
+    <script>
+        // Function to make API calls
+        async function makeApiCall(endpoint, method, payload) {
+            const API_BASE_URL = 'http://localhost:8082';
+            const url = `${API_BASE_URL}${endpoint}`;
+            
+            try {
+                console.log(`Making ${method} request to ${url}`);
+                if (payload) console.log('Payload:', payload);
+                
+                const options = {
+                    method: method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Access-Control-Allow-Origin': '*'
+                    }
+                };
+                
+                if (payload) {
+                    options.body = JSON.stringify(payload);
+                }
+                
+                const startTime = Date.now();
+                const response = await fetch(url, options);
+                const endTime = Date.now();
+                const responseTime = endTime - startTime;
+                
+                const responseText = await response.text();
+                
+                let formattedResponse;
+                try {
+                    // Try to parse as JSON for formatting
+                    const jsonData = JSON.parse(responseText);
+                    formattedResponse = JSON.stringify(jsonData, null, 2);
+                } catch {
+                    formattedResponse = responseText;
+                }
+                
+                const result = {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: Object.fromEntries([...response.headers.entries()]),
+                    body: formattedResponse,
+                    responseTime: responseTime
+                };
+                
+                console.log('Response:', result);
+                return result;
+            } catch (error) {
+                console.error('API call failed:', error);
+                return {
+                    status: 'ERROR',
+                    error: error.toString(),
+                    message: 'Failed to make API call'
+                };
+            }
+        }
+        
+        // Test health check API
+        async function testHealthCheck() {
+            updateResponse("Checking server health...");
+            const result = await makeApiCall('/api/health', 'GET');
+            
+            let statusHTML = '';
+            if (result.status === 200) {
+                statusHTML = `<p class="success">Server is healthy! Response time: ${result.responseTime}ms</p>`;
+            } else {
+                statusHTML = `<p class="error">Server health check failed!</p>`;
+            }
+            
+            updateResponse(
+                `${statusHTML}\n\n` +
+                `Status: ${result.status} ${result.statusText}\n\n` + 
+                `Headers: ${JSON.stringify(result.headers, null, 2)}\n\n` +
+                `Body: ${result.body}`
+            );
+        }
+        
+        // Test Firestore connectivity
+        async function testFirestore() {
+            updateResponse("Testing Firestore connection...");
+            const result = await makeApiCall('/api/debug/firestore', 'GET');
+            
+            let statusHTML = '';
+            if (result.status === 200) {
+                statusHTML = `<p class="success">Firestore connection successful! Response time: ${result.responseTime}ms</p>`;
+            } else {
+                statusHTML = `<p class="error">Firestore connection failed!</p>`;
+            }
+            
+            updateResponse(
+                `${statusHTML}\n\n` +
+                `Status: ${result.status} ${result.statusText}\n\n` + 
+                `Headers: ${JSON.stringify(result.headers, null, 2)}\n\n` +
+                `Body: ${result.body}`
+            );
+        }
+        
+        // Test debug room creation
+        async function testDebugRoom() {
+            updateResponse("Testing debug room creation...");
+            const payloadText = document.getElementById('debugRoomPayload').value;
+            let payload;
+            
+            try {
+                payload = JSON.parse(payloadText);
+            } catch (error) {
+                updateResponse(`Invalid JSON: ${error.message}`);
+                return;
+            }
+            
+            const result = await makeApiCall('/api/debug/room', 'POST', payload);
+            
+            let statusHTML = '';
+            if (result.status === 200) {
+                statusHTML = `<p class="success">Debug room created successfully! Response time: ${result.responseTime}ms</p>`;
+            } else {
+                statusHTML = `<p class="error">Debug room creation failed!</p>`;
+            }
+            
+            updateResponse(
+                `${statusHTML}\n\n` +
+                `Status: ${result.status} ${result.statusText}\n\n` + 
+                `Headers: ${JSON.stringify(result.headers, null, 2)}\n\n` +
+                `Body: ${result.body}`
+            );
+        }
+        
+        // Test room creation
+        async function testCreateRoom() {
+            updateResponse("Creating room...");
+            const payloadText = document.getElementById('createRoomPayload').value;
+            let payload;
+            
+            try {
+                payload = JSON.parse(payloadText);
+            } catch (error) {
+                updateResponse(`Invalid JSON: ${error.message}`);
+                return;
+            }
+            
+            const result = await makeApiCall('/api/rooms', 'POST', payload);
+            
+            let statusHTML = '';
+            if (result.status === 200) {
+                statusHTML = `<p class="success">Room created successfully! Response time: ${result.responseTime}ms</p>`;
+            } else {
+                statusHTML = `<p class="error">Room creation failed!</p>`;
+            }
+            
+            updateResponse(
+                `${statusHTML}\n\n` +
+                `Status: ${result.status} ${result.statusText}\n\n` + 
+                `Headers: ${JSON.stringify(result.headers, null, 2)}\n\n` +
+                `Body: ${result.body}`
+            );
+        }
+        
+        // List all rooms
+        async function listRooms() {
+            updateResponse("Listing rooms...");
+            const result = await makeApiCall('/api/rooms', 'GET');
+            
+            let statusHTML = '';
+            if (result.status === 200) {
+                statusHTML = `<p class="success">Rooms retrieved successfully! Response time: ${result.responseTime}ms</p>`;
+            } else {
+                statusHTML = `<p class="error">Failed to retrieve rooms!</p>`;
+            }
+            
+            updateResponse(
+                `${statusHTML}\n\n` +
+                `Status: ${result.status} ${result.statusText}\n\n` + 
+                `Headers: ${JSON.stringify(result.headers, null, 2)}\n\n` +
+                `Body: ${result.body}`
+            );
+        }
+        
+        // Update response container
+        function updateResponse(text) {
+            document.getElementById('response').innerHTML = text;
+        }
+    </script>
+</body>
+</html> 

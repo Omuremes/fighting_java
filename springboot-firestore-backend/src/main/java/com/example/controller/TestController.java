@@ -30,4 +30,16 @@ public class TestController {
         
         return response;
     }
+    
+    /**
+     * Simple ping endpoint for connection monitoring
+     */
+    @MessageMapping("/test-ping")
+    @SendTo("/topic/test-pong")
+    public Map<String, Object> handlePing() {
+        Map<String, Object> response = new HashMap<>();
+        response.put("type", "pong");
+        response.put("timestamp", System.currentTimeMillis());
+        return response;
+    }
 } 

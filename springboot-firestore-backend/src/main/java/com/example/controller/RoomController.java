@@ -2,6 +2,7 @@ package com.example.controller;
 
 import java.util.List;
 import java.util.Map;
+import java.util.HashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -60,6 +61,7 @@ public class RoomController {
                 return ResponseEntity.badRequest().build();
             }
             
+            logger.info("Creating room with host={}, hostName={}, character={}", hostId, hostName, hostCharacter);
             Room room = roomService.createRoom(hostId, hostName, hostCharacter);
             logger.info("Room created successfully: {}", room.getRoomId());
             
@@ -70,8 +72,17 @@ public class RoomController {
                 .header("Content-Type", "application/json")
                 .body(room);
         } catch (Exception e) {
-            logger.error("Error creating room", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            logger.error("Error creating room: {}", e.getMessage(), e);
+            e.printStackTrace(); // Print full stack trace
+            
+            // Return JSON error response with details
+            Map<String, Object> errorResponse = new HashMap<>();
+            errorResponse.put("error", "INTERNAL_ERROR");
+            errorResponse.put("message", e.getMessage());
+            
+            return ResponseEntity
+                .status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(null);
         }
     }
 
